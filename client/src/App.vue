@@ -1,11 +1,20 @@
 <template>
   <div id="app-root">
-    <h1>斗地主</h1>
-    <p>开发中...</p>
+    <Home v-if="!currentRoom" @enter-room="onEnterRoom" />
+    <GameRoom v-else :room-id="currentRoom" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
+import Home from './views/Home.vue'
+import GameRoom from './views/GameRoom.vue'
+
+const currentRoom = ref<string | null>(null)
+
+function onEnterRoom(roomId: string) {
+  currentRoom.value = roomId
+}
 </script>
 
 <style>

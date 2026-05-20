@@ -3,7 +3,13 @@
     "allow": [
       "Read(//d/H/**)",
       "Bash(pnpm install *)",
-      "Bash(npm --version)"
+      "Bash(npm --version)",
+      "Bash(git commit *)",
+      "Bash(git --no-replace-objects log --oneline -5)",
+      "Bash(git log *)",
+      "Bash(npx --yes pnpm@latest --version)",
+      "Bash(pnpm --version)",
+      "Bash(GIT_OPTIONAL_LOCKS=0 git ls-files)"
     ]
   }
 }
