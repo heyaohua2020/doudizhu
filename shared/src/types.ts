@@ -53,6 +53,7 @@ export interface Player {
   cards: CardList
   isLandlord: boolean
   isReady: boolean
+  aiControlled?: boolean
 }
 
 export interface RoomState {
