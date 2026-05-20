@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/H/**)",
+      "Bash(pnpm install *)",
+      "Bash(npm --version)"
+    ]
+  }
+}

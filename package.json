@@ -1,0 +1,13 @@
+{
+  "name": "doudizhu",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"pnpm dev:server\" \"pnpm dev:client\"",
+    "dev:server": "pnpm --filter server dev",
+    "dev:client": "pnpm --filter client dev",
+    "build": "pnpm --filter shared build && pnpm --filter server build && pnpm --filter client build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
