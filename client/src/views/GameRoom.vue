@@ -1,165 +1,272 @@
 <template>
   <div class="game-room">
-    <!-- 等待房间 -->
+    <!-- 背景装饰 -->
+    <div class="bg-pattern"></div>
+    <div class="bg-glow"></div>
+
+    <!-- ===== 等待房间 ===== -->
     <div v-if="ws.room.phase === 'waiting'" class="waiting-room">
-      <div class="waiting-header">
-        <h2>房间号: {{ ws.roomId.value }}</h2>
-        <p class="waiting-hint">分享房间号给好友，或添加 AI 开始游戏</p>
-      </div>
-      <div class="seats">
-        <div
-          v-for="(seat, i) in seatList"
-          :key="i"
-          class="seat"
-          :class="{ occupied: seat.player, ai: seat.player?.aiControlled, owner: i === 0 }"
-        >
-          <template v-if="seat.player">
-            <div class="seat-avatar">{{ seat.player.nickname.charAt(0) }}</div>
-            <div class="seat-name">
-              {{ seat.player.nickname }}
-              <span v-if="seat.player.aiControlled" class="ai-badge">AI</span>
-              <span v-if="seat.player.id === ws.playerId.value" class="me-badge">你</span>
-            </div>
-            <div v-if="seat.player.id === ws.room.state?.owner" class="owner-badge">房主</div>
-          </template>
-          <template v-else>
-            <div class="seat-empty">
-              <span class="seat-label">空位</span>
-              <button
-                v-if="ws.playerId.value === ws.room.state?.owner"
-                class="btn-add-ai"
-                @click="ws.addAi()"
-              >
-                +AI
-              </button>
-            </div>
-          </template>
+      <div class="waiting-card">
+        <div class="waiting-header">
+          <div class="room-tag">🃏 房间号 <strong>{{ ws.roomId.value }}</strong></div>
+          <p class="waiting-hint">分享房间号给好友，或添加 AI 开始游戏</p>
         </div>
-      </div>
-      <div class="waiting-actions">
-        <button
-          v-if="ws.playerId.value === ws.room.state?.owner"
-          class="btn-start"
-          @click="ws.requestStartGame()"
-        >
-          开始游戏
-        </button>
+        <div class="seats">
+          <div
+            v-for="(seat, i) in seatList"
+            :key="i"
+            class="seat"
+            :class="{ occupied: seat.player, ai: seat.player?.aiControlled, owner: i === 0 }"
+          >
+            <template v-if="seat.player">
+              <div class="seat-avatar" :class="{ 'is-ai': seat.player.aiControlled }">
+                {{ seat.player.aiControlled ? '🤖' : seat.player.nickname.charAt(0) }}
+              </div>
+              <div class="seat-info">
+                <div class="seat-name">
+                  {{ seat.player.nickname }}
+                  <span v-if="seat.player.aiControlled" class="ai-badge">AI</span>
+                  <span v-if="seat.player.id === ws.playerId.value" class="me-badge">你</span>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <div class="seat-empty">
+                <div class="seat-icon">➕</div>
+                <span class="seat-label">等待加入</span>
+                <button
+                  v-if="ws.playerId.value === ws.room.state?.owner"
+                  class="btn-add-ai"
+                  @click="ws.addAi()"
+                >
+                  + 添加AI
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="waiting-actions">
+          <button
+            v-if="ws.playerId.value === ws.room.state?.owner"
+            class="btn-start"
+            @click="ws.requestStartGame()"
+          >
+            🎯 开始游戏
+          </button>
+          <button class="btn-leave-waiting" @click="ws.leaveRoom()">退出房间</button>
+        </div>
       </div>
     </div>
 
+    <!-- ===== 游戏中 ===== -->
     <template v-if="ws.room.phase !== 'waiting'">
-    <!-- 其他玩家 -->
-    <div class="player-top">
-      <div class="player-info">
-        <div class="avatar" :class="{ landlord: isLandlord(players[1]?.id) }">P2</div>
-        <span class="name">{{ players[1]?.nickname ?? '等待中...' }}<span v-if="players[1]?.aiControlled" class="ai-badge">AI</span></span>
-        <span v-if="isLandlord(players[1]?.id)" class="badge">地主</span>
-        <span class="card-count">{{ players[1] ? '×' + remainingCards(players[1].id) : '' }}</span>
+      <!-- 顶部栏 -->
+      <div class="top-bar">
+        <div class="room-badge">🃏 {{ ws.roomId.value }}</div>
+        <button class="btn-quit" @click="ws.leaveRoom()">✕ 退出</button>
       </div>
-    </div>
 
-    <div class="player-side">
-      <div class="player-info">
-        <div class="avatar" :class="{ landlord: isLandlord(players[2]?.id) }">P3</div>
-        <span class="name">{{ players[2]?.nickname ?? '等待中...' }}<span v-if="players[2]?.aiControlled" class="ai-badge">AI</span></span>
-        <span v-if="isLandlord(players[2]?.id)" class="badge">地主</span>
-        <span class="card-count">{{ players[2] ? '×' + remainingCards(players[2].id) : '' }}</span>
-      </div>
-    </div>
-
-    <!-- 底牌 -->
-    <div v-if="ws.landlordId.value" class="bottom-cards">
-      <div
-        v-for="(card, i) in ws.bottomCards.value"
-        :key="i"
-        class="card back"
-      ></div>
-    </div>
-
-    <!-- 上家出牌 -->
-    <div v-if="lastPlayDisplay && lastPlayDisplay.pos === 'left'" class="played-cards left">
-      <CardItem v-for="(c, i) in lastPlayDisplay.cards" :key="i" :card="c" :small="true" />
-    </div>
-
-    <!-- 上家出牌（右侧玩家） -->
-    <div v-if="lastPlayDisplay && lastPlayDisplay.pos === 'right'" class="played-cards right">
-      <CardItem v-for="(c, i) in lastPlayDisplay.cards" :key="i" :card="c" :small="true" />
-    </div>
-
-    <!-- 中间提示 -->
-    <div class="center-info" v-if="ws.room.phase === 'calling' && isMyTurn">
-      <p class="phase-title">叫地主</p>
-      <div class="call-btns">
-        <button v-if="canCall(0)" class="call-btn" @click="ws.callScore(0)">不叫</button>
-        <button v-if="canCall(1)" class="call-btn" @click="ws.callScore(1)">1分</button>
-        <button v-if="canCall(2)" class="call-btn" @click="ws.callScore(2)">2分</button>
-        <button v-if="canCall(3)" class="call-btn highlight" @click="ws.callScore(3)">3分</button>
-      </div>
-    </div>
-
-    <div v-else-if="ws.room.phase === 'calling'" class="center-info">
-      <p class="phase-title">叫地主中...</p>
-    </div>
-
-    <div v-if="isMyTurn && ws.room.phase === 'playing'" class="play-info">
-      请出牌
-    </div>
-
-    <!-- 游戏结束 -->
-    <div v-if="ws.winner.value" class="game-over-overlay">
-      <div class="game-over-card">
-        <h2>游戏结束</h2>
-        <p class="winner-name">{{ winnerName }} 获胜！</p>
-        <p class="bomb-info">炸弹 × {{ ws.bombsCount.value }}</p>
-        <button class="btn-back" @click="ws.leaveRoom()">返回大厅</button>
-      </div>
-    </div>
-
-    <!-- 房间号 -->
-    <div class="room-id-bar">
-      房间号: {{ ws.roomId.value }}
-      <button class="btn-leave" @click="ws.leaveRoom()">退出</button>
-    </div>
-
-    <!-- 我的手牌 -->
-    <div class="my-area">
-      <div class="my-info">
-        <div class="avatar me" :class="{ landlord: isLandlord(playerId) }">
-          {{ ws.playerId.value?.slice(-2) ?? '我' }}
+      <!-- 桌面区域 -->
+      <div class="table-area">
+        <!-- 底牌 -->
+        <div class="bottom-cards-area">
+          <div class="bottom-label">底牌</div>
+          <div class="bottom-cards">
+            <div
+              v-for="(card, i) in ws.bottomCards.value"
+              :key="i"
+              class="bc-card"
+              :class="{ revealed: ws.landlordId.value }"
+            >
+              <div v-if="ws.landlordId.value" class="bc-card-face">
+                <CardFace :card="card" />
+              </div>
+              <div v-else class="bc-card-back"></div>
+            </div>
+          </div>
         </div>
-        <span class="name">{{ myName }}</span>
-        <span v-if="isLandlord(playerId)" class="badge">地主</span>
-        <template v-if="ws.room.phase === 'playing' && isMyTurn">
-          <button class="action-btn play-btn" @click="onPlayCards">出牌</button>
-          <button class="action-btn pass-btn" @click="ws.playCards([])">不要</button>
-        </template>
-        <button v-if="ws.room.phase === 'ended'" class="action-btn" @click="ws.leaveRoom()">返回大厅</button>
-      </div>
 
-      <div class="my-cards">
-        <div
-          v-for="(card, i) in ws.myCards.value"
-          :key="`${card.rank}-${card.suit}-${i}`"
-          class="card-wrapper"
-          :class="{ selected: selectedIndices.has(i) }"
-          :style="{ left: i * 28 + 'px', zIndex: i }"
-          @click="toggleCard(i)"
-        >
-          <CardFace :card="card" />
+        <!-- 上家（位置1） -->
+        <div class="player-spot top-spot" :class="{ active: isPlayerTurn(1) }">
+          <div class="spot-avatar" :class="{ landlord: isLandlord(players[1]?.id) }">
+            {{ players[1]?.aiControlled ? '🤖' : (players[1]?.nickname?.charAt(0) ?? '?') }}
+            <div v-if="isLandlord(players[1]?.id)" class="crown">👑</div>
+          </div>
+          <div class="spot-info">
+            <span class="spot-name">{{ players[1]?.nickname ?? '等待中' }}</span>
+            <span v-if="players[1]?.aiControlled" class="ai-tag">AI</span>
+            <span v-if="isLandlord(players[1]?.id)" class="landlord-tag">地主</span>
+          </div>
+          <div class="spot-count">✕ {{ players[1] ? getPlayerCardCount(players[1].id) : 0 }}</div>
+          <!-- 玩家状态 -->
+          <div v-if="callScoreText && callScoreText.idx === 1" class="status-tag call-status">
+            {{ callScoreText.text }}
+          </div>
+          <div v-if="passDisplayIdx === 1" class="status-tag pass-status">不出</div>
+        </div>
+
+        <!-- 下家（位置2） -->
+        <div class="player-spot right-spot" :class="{ active: isPlayerTurn(2) }">
+          <div class="spot-avatar" :class="{ landlord: isLandlord(players[2]?.id) }">
+            {{ players[2]?.aiControlled ? '🤖' : (players[2]?.nickname?.charAt(0) ?? '?') }}
+            <div v-if="isLandlord(players[2]?.id)" class="crown">👑</div>
+          </div>
+          <div class="spot-info">
+            <span class="spot-name">{{ players[2]?.nickname ?? '等待中' }}</span>
+            <span v-if="players[2]?.aiControlled" class="ai-tag">AI</span>
+            <span v-if="isLandlord(players[2]?.id)" class="landlord-tag">地主</span>
+          </div>
+          <div class="spot-count">✕ {{ players[2] ? getPlayerCardCount(players[2].id) : 0 }}</div>
+          <div v-if="callScoreText && callScoreText.idx === 2" class="status-tag call-status">
+            {{ callScoreText.text }}
+          </div>
+          <div v-if="passDisplayIdx === 2" class="status-tag pass-status">不出</div>
+        </div>
+
+        <!-- 中央出牌区 -->
+        <div class="center-play-area">
+          <!-- 叫地主阶段 -->
+          <div v-if="ws.room.phase === 'calling'" class="calling-area">
+            <div v-if="isMyTurn" class="call-prompt">
+              <div class="call-title">🗣 叫地主</div>
+              <div class="call-btns">
+                <button class="call-btn no-call" @click="ws.callScore(0)">不叫</button>
+                <button class="call-btn one-call" @click="ws.callScore(1)">1分</button>
+                <button class="call-btn two-call" @click="ws.callScore(2)">2分</button>
+                <button class="call-btn three-call" @click="ws.callScore(3)">3分</button>
+              </div>
+            </div>
+            <div v-else class="call-waiting">
+              <div class="waiting-dots">
+                <span>等待叫地主</span>
+                <span class="dot-anim">...</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 出牌阶段 -->
+          <div v-if="ws.room.phase === 'playing'" class="playing-area">
+            <!-- 最近出牌 -->
+            <div v-if="lastPlayDisplay && lastPlayDisplay.cards.length > 0" class="played-group" :class="`from-${lastPlayDisplay.direction}`">
+              <div class="played-label">{{ lastPlayDisplay.playerName }}</div>
+              <div class="played-cards-row">
+                <div
+                  v-for="(c, ci) in lastPlayDisplay.cards"
+                  :key="ci"
+                  class="played-card-wrapper"
+                  :style="{ animationDelay: ci * 0.05 + 's' }"
+                >
+                  <CardItem :card="c" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 我出牌提示 -->
+            <div v-if="isMyTurn" class="my-turn-prompt">
+              <span>请出牌 👇</span>
+            </div>
+          </div>
+
+          <!-- 游戏结束 -->
+          <div v-if="ws.room.phase === 'ended'" class="game-result">
+            <div class="result-overlay"></div>
+            <div class="result-card">
+              <div class="result-icon">{{ isLandlord(ws.winner.value) ? '👑' : '🎉' }}</div>
+              <h2 class="result-title">{{ winnerName }} 获胜！</h2>
+              <div class="result-detail">
+                <span class="result-bomb">💣 炸弹 × {{ ws.bombsCount.value }}</span>
+                <span class="result-role">{{ isLandlord(ws.winner.value) ? '地主' : '农民' }} 胜利</span>
+              </div>
+              <button class="btn-replay" @click="ws.leaveRoom()">🔄 再来一局</button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+
+      <!-- 我的手牌区 -->
+      <div class="my-area">
+        <div class="my-bar">
+          <div class="my-avatar" :class="{ landlord: isLandlord(playerId) }">
+            {{ myName.charAt(0) }}
+            <div v-if="isLandlord(playerId)" class="mini-crown">👑</div>
+          </div>
+          <div class="my-info-text">
+            <span class="my-name">{{ myName }}</span>
+            <span v-if="isLandlord(playerId)" class="landlord-badge">地主</span>
+            <span v-else class="farmer-badge">农民</span>
+            <span class="my-count">✕ {{ ws.myCards.value.length }}</span>
+          </div>
+          <div class="my-actions">
+            <template v-if="ws.room.phase === 'playing' && isMyTurn">
+              <button class="act-btn pass-act" @click="ws.playCards([])" :disabled="!canPass">
+                🙅 不出
+              </button>
+              <button class="act-btn play-act" @click="onPlayCards" :disabled="selectedIndices.size === 0">
+                🚀 出牌
+              </button>
+            </template>
+            <template v-if="ws.room.phase === 'calling' && isMyTurn">
+              <!-- 叫地主按钮已在中央区显示 -->
+            </template>
+            <button v-if="ws.room.phase === 'ended'" class="act-btn replay-btn" @click="ws.leaveRoom()">
+              🔄 再来一局
+            </button>
+          </div>
+        </div>
+
+        <div class="my-cards-container" ref="cardsContainer" @mousemove="onCardsMouseMove" @mouseup="onCardsMouseUp" @mouseleave="onCardsMouseLeave">
+          <div class="my-cards">
+            <div
+              v-for="(card, i) in sortedCards"
+              :key="`${card.rank}-${card.suit}-${i}`"
+              class="card-slot"
+              :class="{
+                selected: selectedIndices.has(i),
+                disabled: !isMyTurn || ws.room.phase !== 'playing',
+                dragging: isDragging
+              }"
+              :style="getCardStyle(i)"
+              @mousedown.prevent="onCardsMouseDown($event, i)"
+              @click="onCardClick(i)"
+            >
+              <CardFace :card="card" />
+            </div>
+          </div>
+        </div>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, inject, reactive, ref } from 'vue'
+import { computed, inject, reactive, ref, watch } from 'vue'
 import type { Card } from '@doudizhu/shared'
 import CardFace from '../components/CardFace.vue'
 import CardItem from '../components/CardItem.vue'
+import {
+  playSelectSound, playCardSound, playPassSound, playCallSound,
+  playLandlordSound, playWinSound, playLoseSound, playDealSound,
+  startBgm, stopBgm,
+} from '../composables/useSound'
 
 const ws: ReturnType<typeof import('../composables/useWebSocket').useWebSocket> = inject('ws')!
+
+// 牌面大小映射，用于排序
+const RANK_ORDER: Record<string, number> = {
+  '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
+  '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14, '2': 15,
+  'SMALL_JOKER': 16, 'BIG_JOKER': 17,
+}
+const SUIT_ORDER: Record<string, number> = { spade: 4, heart: 3, club: 2, diamond: 1 }
+
+// 手牌按大小从大到小排序（先按点数，再按花色）
+const sortedCards = computed(() => {
+  return [...ws.myCards.value].sort((a, b) => {
+    const rankDiff = (RANK_ORDER[b.rank] ?? 0) - (RANK_ORDER[a.rank] ?? 0)
+    if (rankDiff !== 0) return rankDiff
+    return (SUIT_ORDER[b.suit ?? ''] ?? 0) - (SUIT_ORDER[a.suit ?? ''] ?? 0)
+  })
+})
 
 const selectedIndices = reactive(new Set<number>())
 
@@ -174,51 +281,153 @@ const seatList = computed(() => {
 })
 const playerId = computed(() => ws.playerId.value)
 const myName = computed(() => players.value.find(p => p.id === playerId.value)?.nickname ?? '我')
+const myIdx = computed(() => players.value.findIndex(p => p.id === playerId.value))
+
 const isMyTurn = computed(() => {
-  if (!playerId.value) return false
-  if (ws.room.phase === 'calling') {
-    const idx = players.value.findIndex(p => p.id === playerId.value)
-    return idx === ws.currentCallIndex.value
-  }
-  if (ws.room.phase === 'playing') {
-    const idx = players.value.findIndex(p => p.id === playerId.value)
-    return idx === ws.currentPlayerIndex.value
-  }
+  if (!playerId.value || myIdx.value === -1) return false
+  if (ws.room.phase === 'calling') return myIdx.value === ws.currentCallIndex.value
+  if (ws.room.phase === 'playing') return myIdx.value === ws.currentPlayerIndex.value
   return false
 })
+
+function isPlayerTurn(spotIdx: number): boolean {
+  if (ws.room.phase === 'calling') return spotIdx === ws.currentCallIndex.value
+  if (ws.room.phase === 'playing') return spotIdx === ws.currentPlayerIndex.value
+  return false
+}
 
 function isLandlord(id?: string) {
   return !!id && id === ws.landlordId.value
 }
 
-function remainingCards(id: string) {
-  if (id === playerId.value) return ws.myCards.value.length
-  // 对其他玩家，我们从 lastPlay 的 remaining 获取
-  return '?'
+function getPlayerCardCount(pid: string): number {
+  // my own cards count from myCards
+  if (pid === playerId.value) return ws.myCards.value.length
+  // for others, use the server-tracked count
+  if (ws.playerCardCounts[pid] !== undefined) return ws.playerCardCounts[pid]
+  return 0
 }
+
+const canPass = computed(() => {
+  // 只有上家出了牌才能不出（有lastPlay且不是自己打出的）
+  const lp = ws.lastPlay.value
+  return lp && lp.playerId !== playerId.value && lp.cards.length > 0
+})
+
+// ===== 叫分&过牌状态显示 =====
+const callScoreText = ref<{ idx: number; text: string } | null>(null)
+const passDisplayIdx = ref<number | null>(null)
 
 const winnerName = computed(() => {
   return players.value.find(p => p.id === ws.winner.value)?.nickname ?? '未知'
 })
 
-function canCall(score: number): boolean {
-  return isMyTurn.value && ws.room.phase === 'calling'
+// 清除超时
+let callTimeout: ReturnType<typeof setTimeout> | null = null
+let passTimeout: ReturnType<typeof setTimeout> | null = null
+
+function clearTimers() {
+  if (callTimeout) { clearTimeout(callTimeout); callTimeout = null }
+  if (passTimeout) { clearTimeout(passTimeout); passTimeout = null }
 }
 
-// 构建 lastPlayDisplay 以确定显示位置
+// 监听叫分事件
+watch(() => ws.lastCallScore.value, (cs) => {
+  if (!cs) return
+  clearTimers()
+  const idx = players.value.findIndex(p => p.id === cs.playerId)
+  if (idx === -1) return
+  const labels = ['不叫', '1分', '2分', '3分']
+  callScoreText.value = { idx, text: labels[cs.score] ?? `${cs.score}分` }
+  callTimeout = setTimeout(() => { callScoreText.value = null }, 2500)
+})
+
+// 监听过牌事件
+watch(() => ws.lastPassPlayerId.value, (pid) => {
+  if (!pid) return
+  const idx = players.value.findIndex(p => p.id === pid)
+  if (idx === -1) return
+  passDisplayIdx.value = idx
+  if (passTimeout) clearTimeout(passTimeout)
+  passTimeout = setTimeout(() => { passDisplayIdx.value = null }, 2500)
+})
+
+// 新游戏开始时清除状态
+watch(() => ws.room.phase, (phase) => {
+  if (phase === 'calling') {
+    callScoreText.value = null
+    passDisplayIdx.value = null
+    selectedIndices.clear()
+    playDealSound()
+    stopBgm()
+  }
+  if (phase === 'playing') {
+    startBgm()
+  }
+  if (phase === 'ended') {
+    stopBgm()
+  }
+})
+
+// ===== 音效 =====
+// 选牌（拖拽时不触发）
+watch(() => [...selectedIndices], () => {
+  if (!isDragging.value && selectedIndices.size > 0) playSelectSound()
+})
+// 出牌
+watch(() => ws.lastPlay.value, (lp, oldLp) => {
+  if (lp && lp.cards.length > 0 && lp.playerId !== ws.lastPassPlayerId.value) {
+    playCardSound()
+  }
+})
+// 过牌
+watch(() => ws.lastPassPlayerId.value, (pid) => {
+  if (pid) playPassSound()
+})
+// 叫分
+watch(() => ws.lastCallScore.value, (cs) => {
+  if (cs) playCallSound(cs.score)
+})
+// 地主
+watch(() => ws.landlordId.value, (id) => {
+  if (id) playLandlordSound()
+})
+// 胜负
+watch(() => ws.winner.value, (id) => {
+  if (!id) return
+  setTimeout(() => {
+    if (id === playerId.value) playWinSound()
+    else playLoseSound()
+  }, 600)
+})
+
+// 离开房间时停止BGM
+watch(() => ws.roomId.value, (id) => {
+  if (!id) stopBgm()
+})
+
+// 构建 lastPlayDisplay
 const lastPlayDisplay = computed(() => {
   const lp = ws.lastPlay.value
-  if (!lp) return null
-  const idx = players.value.findIndex(p => p.id === lp.playerId)
-  if (idx === -1) return null
-  const myIdx = players.value.findIndex(p => p.id === playerId.value)
-  // pos 0=my, 1=left, 2=right from my perspective (I'm at index 0 in display)
-  // Actually the display order is: top(1), side(2), me(0)
-  // top is left of me from my perspective
-  if (myIdx === -1) return { cards: lp.cards, pos: 'left' }
-  if (idx === (myIdx + 1) % 3) return { cards: lp.cards, pos: 'left' }
-  if (idx === (myIdx + 2) % 3) return { cards: lp.cards, pos: 'right' }
-  return null
+  if (!lp || lp.cards.length === 0) return null
+  const playIdx = players.value.findIndex(p => p.id === lp.playerId)
+  if (playIdx === -1) return { cards: lp.cards, direction: 'center', playerName: '' }
+
+  let direction = 'center'
+  let playerName = players.value[playIdx]?.nickname ?? ''
+
+  if (myIdx.value !== -1) {
+    if (playIdx === myIdx.value) {
+      direction = 'me'
+      playerName = '我'
+    } else if (playIdx === (myIdx.value + 1) % 3) {
+      direction = 'right'
+    } else {
+      direction = 'left'
+    }
+  }
+
+  return { cards: lp.cards, direction, playerName }
 })
 
 function toggleCard(i: number) {
@@ -231,130 +440,605 @@ function toggleCard(i: number) {
 }
 
 function onPlayCards() {
-  const cards = [...selectedIndices].sort((a, b) => a - b).map(i => ws.myCards.value[i])
+  const cards = [...selectedIndices].sort((a, b) => a - b).map(i => sortedCards.value[i])
   if (cards.length === 0) return
   ws.playCards(cards)
   selectedIndices.clear()
 }
+
+// ===== 拖拽多选 =====
+const cardsContainer = ref<HTMLDivElement | null>(null)
+const isDragging = ref(false)
+const dragStartIdx = ref(-1)
+const dragEndIdx = ref(-1)
+
+function getCardStyle(i: number) {
+  const total = sortedCards.value.length
+  const overlap = Math.min(58, Math.max(36, 600 / Math.max(total, 1)))
+  const offset = 60
+  return {
+    left: (i * overlap + offset) + 'px',
+    zIndex: i,
+  }
+}
+
+/** 单击：切换单张牌的选中状态（连续点选多张） */
+function onCardClick(i: number) {
+  if (!isMyTurn.value || ws.room.phase !== 'playing') return
+  // 如果是拖拽结束触发的 click，忽略
+  if (isDragging.value) return
+  toggleCard(i)
+}
+
+/** 鼠标按下：准备拖拽 */
+function onCardsMouseDown(e: MouseEvent, cardIdx: number) {
+  if (!isMyTurn.value || ws.room.phase !== 'playing') return
+  isDragging.value = true
+  dragStartIdx.value = cardIdx
+  dragEndIdx.value = cardIdx
+  // 不需要 mousemove 单独选中 — 交给 click 处理
+  // mousemove 只负责拖拽扩展
+}
+
+function onCardsMouseMove(e: MouseEvent) {
+  if (!isDragging.value) return
+  // 计算当前鼠标位置对应哪张牌
+  const container = cardsContainer.value?.querySelector('.my-cards') as HTMLElement
+  if (!container) return
+
+  const rect = container.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const total = sortedCards.value.length
+  const overlap = Math.min(58, Math.max(36, 600 / Math.max(total, 1)))
+
+  // 找到鼠标下的牌索引
+  let hoverIdx = Math.round((x - 60 - overlap / 2) / overlap)
+  hoverIdx = Math.max(0, Math.min(total - 1, hoverIdx))
+
+  if (hoverIdx === dragEndIdx.value) return
+  dragEndIdx.value = hoverIdx
+
+  // 选中起始到结束之间的所有牌
+  selectedIndices.clear()
+  const start = Math.min(dragStartIdx.value, dragEndIdx.value)
+  const end = Math.max(dragStartIdx.value, dragEndIdx.value)
+  for (let i = start; i <= end; i++) {
+    selectedIndices.add(i)
+  }
+}
+
+function onCardsMouseUp() {
+  if (!isDragging.value) return
+  isDragging.value = false
+}
+
+function onCardsMouseLeave() {
+  // 鼠标离开卡片区域时结束拖拽
+  if (isDragging.value) {
+    isDragging.value = false
+  }
+}
 </script>
 
 <style scoped>
+/* ===== 全局 ===== */
 .game-room {
   height: 100%;
-  background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+  background: radial-gradient(ellipse at center, #1b5936 0%, #0f3d24 40%, #082012 100%);
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
   color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  overflow: hidden;
 }
 
-/* 玩家位置 */
-.player-top {
+.bg-pattern {
   position: absolute;
-  top: 20px;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 80%, rgba(255,215,0,0.03) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(255,100,50,0.03) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+.bg-glow {
+  position: absolute;
+  top: -200px;
   left: 50%;
   transform: translateX(-50%);
+  width: 600px;
+  height: 400px;
+  background: radial-gradient(ellipse, rgba(255,215,0,0.04) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
 }
-.player-side {
-  position: absolute;
-  right: 20px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-.player-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(0,0,0,0.3);
-  padding: 6px 12px;
-  border-radius: 20px;
-}
-.avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: #3a7bd5;
+
+/* ===== 等待房间 ===== */
+.waiting-room {
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: bold;
+  z-index: 1;
+  position: relative;
 }
-.avatar.landlord { background: linear-gradient(135deg, #ffd700, #f5a623); color: #1a1a2e; }
-.avatar.me { width: 40px; height: 40px; background: #00b894; }
-.badge {
+.waiting-card {
+  background: linear-gradient(145deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 20px;
+  padding: 40px 36px;
+  text-align: center;
+  border: 1px solid rgba(255,215,0,0.12);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.3);
+  min-width: 420px;
+}
+.room-tag {
+  font-size: 18px;
+  color: #ffd700;
+  margin-bottom: 6px;
+}
+.room-tag strong {
+  font-size: 22px;
+  letter-spacing: 3px;
+}
+.waiting-hint {
+  color: rgba(255,255,255,0.4);
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+.seats {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-bottom: 28px;
+}
+.seat {
+  width: 130px;
+  height: 150px;
+  border: 2px dashed rgba(255,255,255,0.12);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.03);
+  transition: all 0.3s;
+}
+.seat.occupied {
+  border-style: solid;
+  border-color: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.05);
+}
+.seat.owner {
+  border-color: rgba(255,215,0,0.3);
+}
+.seat-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3a7bd5, #2d5aa0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: bold;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.seat-avatar.is-ai {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+}
+.seat-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.seat-name {
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ai-badge {
   font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+}
+.me-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
   background: #ffd700;
   color: #1a1a2e;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-weight: bold;
 }
-.card-count {
+.seat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.seat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: rgba(255,255,255,0.3);
+}
+.seat-label {
+  color: rgba(255,255,255,0.3);
+  font-size: 12px;
+}
+.btn-add-ai {
+  padding: 5px 14px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+.btn-add-ai:hover {
+  background: rgba(255,255,255,0.15);
+  color: white;
+}
+.waiting-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.btn-start {
+  padding: 12px 40px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f7971e, #ffd200);
+  color: #3d2000;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 4px 16px rgba(247,151,30,0.3);
+  letter-spacing: 2px;
+}
+.btn-start:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(247,151,30,0.4);
+}
+.btn-leave-waiting {
+  padding: 6px 20px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255,255,255,0.4);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+.btn-leave-waiting:hover {
+  color: rgba(255,255,255,0.7);
+  border-color: rgba(255,255,255,0.2);
+}
+
+/* ===== 顶部栏 ===== */
+.top-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, transparent 100%);
+  z-index: 10;
+}
+.room-badge {
   font-size: 13px;
-  color: #ccc;
+  color: rgba(255,215,0,0.6);
+  letter-spacing: 1px;
+}
+.btn-quit {
+  padding: 4px 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.2s;
+}
+.btn-quit:hover {
+  color: #ff6b6b;
+  border-color: rgba(255,107,107,0.3);
+  background: rgba(255,107,107,0.1);
+}
+
+/* ===== 桌面区域 ===== */
+.table-area {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
 }
 
 /* 底牌 */
-.bottom-cards {
+.bottom-cards-area {
   position: absolute;
-  top: 80px;
+  top: 56px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 10px;
 }
-.card.back {
-  width: 40px;
-  height: 58px;
-  background: linear-gradient(135deg, #2d3436, #636e72);
-  border-radius: 4px;
-  border: 1px solid rgba(255,255,255,0.2);
+.bottom-label {
+  font-size: 13px;
+  color: rgba(255,255,255,0.3);
+  margin-right: 4px;
+}
+.bottom-cards {
+  display: flex;
+  gap: 6px;
+}
+.bc-card {
+  transition: all 0.5s ease;
+}
+.bc-card-back {
+  width: 68px;
+  height: 98px;
+  background: linear-gradient(135deg, #c62828, #8e0000);
+  border-radius: 6px;
+  border: 1px solid rgba(255,215,0,0.2);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.bc-card-face {
+  width: 68px;
+  height: 98px;
+}
+.bc-card-face :deep(.card-face) {
+  width: 68px;
+  height: 98px;
 }
 
-/* 出牌显示 */
-.played-cards {
+/* === 玩家位置 === */
+.player-spot {
   position: absolute;
   display: flex;
-  gap: 2px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
-.played-cards.left { top: 50%; left: 15%; transform: translateY(-50%); }
-.played-cards.right { top: 50%; right: 15%; transform: translateY(-50%); }
+.top-spot {
+  top: 56px;
+  right: 120px;
+}
+.right-spot {
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+}
 
-/* 中间信息 */
-.center-info {
+.spot-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3a7bd5, #2d5aa0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: bold;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.3);
+  position: relative;
+  transition: all 0.3s;
+  border: 2px solid transparent;
+}
+.spot-avatar.landlord {
+  background: linear-gradient(135deg, #ffd700, #f5a623);
+  color: #3d2000;
+  border-color: #ffd700;
+  box-shadow: 0 3px 16px rgba(255,215,0,0.3);
+}
+.player-spot.active .spot-avatar {
+  animation: avatarPulse 1.2s ease-in-out infinite;
+  border-color: #ffd700;
+}
+@keyframes avatarPulse {
+  0%, 100% { box-shadow: 0 3px 10px rgba(0,0,0,0.3); }
+  50% { box-shadow: 0 3px 20px rgba(255,215,0,0.4); }
+}
+.crown, .mini-crown {
+  position: absolute;
+  top: -14px;
+  font-size: 16px;
+}
+.mini-crown {
+  top: -10px;
+  right: -8px;
+  font-size: 12px;
+}
+.spot-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0,0,0,0.3);
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.spot-name {
+  max-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-tag {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+}
+.landlord-tag {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #ffd700;
+  color: #3d2000;
+  font-weight: bold;
+}
+.spot-count {
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+}
+
+/* 状态标签 */
+.status-tag {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 8px;
+  font-weight: bold;
+  animation: fadeInUp 0.3s ease;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.call-status {
+  background: rgba(255,215,0,0.15);
+  color: #ffd700;
+  border: 1px solid rgba(255,215,0,0.2);
+}
+.pass-status {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.5);
+}
+
+/* === 中央区 === */
+.center-play-area {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-width: 240px;
+  min-height: 120px;
+}
+
+/* 叫地主 */
+.calling-area {
   text-align: center;
 }
-.phase-title { font-size: 18px; margin-bottom: 12px; }
-.call-btns { display: flex; gap: 8px; }
-.call-btn {
-  padding: 8px 16px;
-  border: 1px solid rgba(255,255,255,0.3);
-  border-radius: 8px;
-  background: rgba(255,255,255,0.1);
-  color: white;
-  cursor: pointer;
-  font-size: 14px;
-}
-.call-btn.highlight {
-  background: linear-gradient(135deg, #ffd700, #f5a623);
-  color: #1a1a2e;
+.call-title {
+  font-size: 20px;
   font-weight: bold;
-  border-color: #ffd700;
+  color: #ffd700;
+  margin-bottom: 12px;
+  text-shadow: 0 2px 8px rgba(255,215,0,0.2);
 }
-.play-info {
-  position: absolute;
-  top: 45%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+.call-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.call-btn {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 56px;
+}
+.call-btn:hover {
+  transform: translateY(-2px);
+}
+.no-call {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+}
+.no-call:hover {
+  background: rgba(255,255,255,0.15);
+}
+.one-call {
+  background: linear-gradient(135deg, #43a047, #66bb6a);
+  color: white;
+}
+.two-call {
+  background: linear-gradient(135deg, #fb8c00, #ffa726);
+  color: white;
+}
+.three-call {
+  background: linear-gradient(135deg, #e53935, #ef5350);
+  color: white;
+  box-shadow: 0 3px 12px rgba(229,57,53,0.3);
+}
+.call-waiting {
+  color: rgba(255,255,255,0.5);
   font-size: 16px;
+}
+
+/* 出牌区 */
+.playing-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-height: 100px;
+}
+.played-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  animation: fadeInScale 0.3s ease;
+}
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+.played-label {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+}
+.played-cards-row {
+  display: flex;
+  gap: 2px;
+}
+.played-card-wrapper {
+  animation: cardDrop 0.3s ease both;
+}
+@keyframes cardDrop {
+  from { opacity: 0; transform: translateY(-30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.my-turn-prompt {
+  font-size: 14px;
   color: #ffd700;
   animation: pulse 1.5s ease-in-out infinite;
+  text-shadow: 0 1px 8px rgba(255,215,0,0.2);
+  background: rgba(0,0,0,0.2);
+  padding: 4px 16px;
+  border-radius: 10px;
 }
 @keyframes pulse {
   0%, 100% { opacity: 0.6; }
@@ -362,174 +1046,225 @@ function onPlayCards() {
 }
 
 /* 游戏结束 */
-.game-over-overlay {
+.game-result {
   position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.7);
+  inset: -200px -200px -200px -200px;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 20;
 }
-.game-over-card {
-  background: rgba(255,255,255,0.1);
-  backdrop-filter: blur(12px);
-  border-radius: 16px;
-  padding: 36px 48px;
-  text-align: center;
-}
-.game-over-card h2 { font-size: 28px; color: #ffd700; margin-bottom: 12px; }
-.winner-name { font-size: 20px; margin-bottom: 8px; }
-.bomb-info { color: #ff6b6b; margin-bottom: 20px; }
-.btn-back {
-  padding: 10px 24px;
-  border: none;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #ffd700, #f5a623);
-  color: #1a1a2e;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: bold;
-}
-
-/* 房间号 */
-.room-id-bar {
+.result-overlay {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  font-size: 12px;
-  color: #aaa;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
-.btn-leave {
-  padding: 4px 10px;
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 4px;
-  background: transparent;
-  color: #aaa;
+.result-card {
+  position: relative;
+  background: linear-gradient(145deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 24px;
+  padding: 40px 48px;
+  text-align: center;
+  border: 1px solid rgba(255,215,0,0.15);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  animation: resultPop 0.5s ease;
+}
+@keyframes resultPop {
+  from { opacity: 0; transform: scale(0.7); }
+  to { opacity: 1; transform: scale(1); }
+}
+.result-icon {
+  font-size: 56px;
+  margin-bottom: 8px;
+  animation: bounce 1.5s ease-in-out infinite;
+}
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+.result-title {
+  font-size: 28px;
+  color: #ffd700;
+  margin-bottom: 8px;
+  text-shadow: 0 2px 12px rgba(255,215,0,0.2);
+}
+.result-detail {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-bottom: 24px;
+  color: rgba(255,255,255,0.6);
+  font-size: 13px;
+}
+.btn-replay {
+  padding: 12px 36px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f7971e, #ffd200);
+  color: #3d2000;
+  font-size: 16px;
+  font-weight: 800;
   cursor: pointer;
-  font-size: 11px;
+  transition: all 0.3s;
+  box-shadow: 0 4px 16px rgba(247,151,30,0.3);
+}
+.btn-replay:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(247,151,30,0.4);
 }
 
-/* 我的手牌区 */
+/* ===== 我的手牌区 ===== */
 .my-area {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 12px 24px 16px;
-  background: linear-gradient(transparent, rgba(0,0,0,0.6));
+  z-index: 10;
+  background: linear-gradient(transparent, rgba(0,0,0,0.7) 25%);
+  padding: 12px 20px 16px;
 }
-.my-info {
+
+.my-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding-left: 8px;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 0 8px;
 }
-.action-btn {
-  padding: 5px 14px;
-  border: 1px solid rgba(255,255,255,0.3);
-  border-radius: 6px;
-  background: rgba(255,255,255,0.1);
-  color: white;
-  cursor: pointer;
-  font-size: 13px;
-}
-.action-btn.play-btn {
+.my-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
   background: linear-gradient(135deg, #00b894, #00cec9);
-  border-color: #00b894;
-  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: bold;
+  position: relative;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  border: 2px solid rgba(255,255,255,0.2);
+}
+.my-avatar.landlord {
+  background: linear-gradient(135deg, #ffd700, #f5a623);
+  color: #3d2000;
+  border-color: #ffd700;
+}
+.my-info-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+.my-name {
+  font-size: 14px;
   font-weight: bold;
 }
-.action-btn.pass-btn {
-  background: rgba(255,107,107,0.2);
-  border-color: #ff6b6b;
-  color: #ff6b6b;
+.landlord-badge, .farmer-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+.landlord-badge {
+  background: #ffd700;
+  color: #3d2000;
+}
+.farmer-badge {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+}
+.my-count {
+  font-size: 13px;
+  color: rgba(255,255,255,0.4);
+  margin-left: 4px;
+}
+
+.my-actions {
+  display: flex;
+  gap: 8px;
+}
+.act-btn {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.act-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.pass-act {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.6);
+}
+.pass-act:hover:not(:disabled) {
+  background: rgba(255,255,255,0.15);
+  color: white;
+}
+.play-act {
+  background: linear-gradient(135deg, #f7971e, #ffd200);
+  color: #3d2000;
+  box-shadow: 0 2px 10px rgba(247,151,30,0.3);
+}
+.play-act:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(247,151,30,0.4);
+}
+.replay-btn {
+  background: linear-gradient(135deg, #f7971e, #ffd200);
+  color: #3d2000;
+}
+.replay-btn:hover {
+  transform: translateY(-1px);
+}
+
+/* 手牌 */
+.my-cards-container {
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
+}
+.my-cards-container::-webkit-scrollbar {
+  height: 4px;
+}
+.my-cards-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.my-cards-container::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+  border-radius: 2px;
 }
 .my-cards {
   position: relative;
-  height: 100px;
-  display: flex;
-  align-items: flex-end;
-  padding-left: 28px;
+  height: 190px;
+  min-width: 100%;
 }
-.card-wrapper {
+.card-slot {
   position: absolute;
   bottom: 0;
   cursor: pointer;
-  transition: transform 0.15s;
+  transition: transform 0.15s ease, bottom 0.15s ease;
 }
-.card-wrapper.selected {
-  transform: translateY(-20px);
+.card-slot:hover {
+  transform: translateY(-12px);
+  z-index: 999 !important;
 }
-
-/* 等待房间 */
-.waiting-room {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 32px;
+.card-slot.selected {
+  transform: translateY(-36px);
 }
-.waiting-header { text-align: center; }
-.waiting-header h2 { font-size: 22px; color: #ffd700; margin-bottom: 8px; }
-.waiting-hint { color: #aaa; font-size: 14px; }
-.seats { display: flex; gap: 24px; }
-.seat {
-  width: 140px;
-  height: 160px;
-  border: 2px dashed rgba(255,255,255,0.2);
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: rgba(255,255,255,0.05);
+.card-slot.disabled {
+  cursor: default;
 }
-.seat.occupied { border-style: solid; border-color: rgba(255,255,255,0.3); }
-.seat.owner { border-color: #ffd700; }
-.seat-avatar {
-  width: 48px; height: 48px;
-  border-radius: 50%;
-  background: #3a7bd5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px; font-weight: bold;
+.card-slot.disabled:hover {
+  transform: none;
 }
-.seat-name { font-size: 14px; }
-.seat-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-.seat-label { color: #666; font-size: 13px; }
-.btn-add-ai {
-  padding: 6px 16px;
-  border: 1px solid rgba(255,255,255,0.3);
-  border-radius: 6px;
-  background: rgba(255,255,255,0.1);
-  color: white;
-  cursor: pointer;
-  font-size: 13px;
-}
-.btn-add-ai:hover { background: rgba(255,255,255,0.2); }
-.waiting-actions { display: flex; gap: 12px; }
-.btn-start {
-  padding: 10px 32px;
-  border: none;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #ffd700, #f5a623);
-  color: #1a1a2e;
-  font-size: 16px;
-  font-weight: bold;
-  cursor: pointer;
-}
-.btn-start:hover { opacity: 0.9; }
 </style>

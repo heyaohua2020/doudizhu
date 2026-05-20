@@ -26,6 +26,9 @@ export function useWebSocket() {
   const winner: Ref<string | null> = ref(null)
   const bombsCount = ref(0)
   const error = ref<string | null>(null)
+  const lastCallScore = ref<{ playerId: string; score: number } | null>(null)
+  const lastPassPlayerId = ref<string | null>(null)
+  const playerCardCounts = reactive<Record<string, number>>({})
 
   function connect() {
     const socket = new WebSocket(WS_URL)
@@ -78,7 +81,7 @@ export function useWebSocket() {
         break
 
       case 'player_called':
-        // 别人叫分的信息，广播给所有人
+        lastCallScore.value = { playerId: payload.playerId, score: payload.score }
         break
 
       case 'next_caller':
@@ -87,6 +90,8 @@ export function useWebSocket() {
 
       case 'landlord_cards':
         bottomCards.value = payload.cards
+        // 地主获得底牌，加入手牌
+        myCards.value = [...myCards.value, ...payload.cards]
         break
 
       case 'landlord_set':
@@ -94,11 +99,24 @@ export function useWebSocket() {
         room.phase = 'playing'
         break
 
-      case 'cards_played':
+      case 'cards_played': {
         lastPlay.value = { playerId: payload.playerId, cards: payload.cards }
+        // 跟踪所有玩家剩余牌数
+        if (typeof payload.remaining === 'number') {
+          playerCardCounts[payload.playerId] = payload.remaining
+        }
+        // 如果是自己出的牌，从手牌中移除
+        if (payload.playerId === playerId.value) {
+          const playedCards = payload.cards as Card[]
+          myCards.value = myCards.value.filter(c =>
+            !playedCards.some(pc => pc.rank === c.rank && (pc.suit ?? pc.jokerType) === (c.suit ?? c.jokerType))
+          )
+        }
         break
+      }
 
       case 'player_passed':
+        lastPassPlayerId.value = payload.playerId
         break
 
       case 'next_turn':
@@ -148,6 +166,10 @@ export function useWebSocket() {
     send('add_ai')
   }
 
+  function startSinglePlayer(nickname: string) {
+    send('single_player_start', { nickname })
+  }
+
   function requestStartGame() {
     send('start_game')
   }
@@ -167,6 +189,9 @@ export function useWebSocket() {
     winner,
     bombsCount,
     error,
+    lastCallScore,
+    lastPassPlayerId,
+    playerCardCounts,
     connect,
     createRoom,
     joinRoom,
@@ -174,6 +199,7 @@ export function useWebSocket() {
     playCards,
     leaveRoom,
     addAi,
+    startSinglePlayer,
     requestStartGame,
   }
 }

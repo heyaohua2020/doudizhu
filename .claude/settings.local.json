@@ -9,7 +9,19 @@
       "Bash(git log *)",
       "Bash(npx --yes pnpm@latest --version)",
       "Bash(pnpm --version)",
-      "Bash(GIT_OPTIONAL_LOCKS=0 git ls-files)"
+      "Bash(GIT_OPTIONAL_LOCKS=0 git ls-files)",
+      "Bash(\"C:/Program Files/Git/bin/git.exe\" add shared/src/types.ts)",
+      "Bash(\"C:/Program Files/Git/bin/git.exe\" commit -m \"feat: add shared type definitions\")",
+      "Bash(git --version)",
+      "Bash(pnpm --filter server exec vitest run)",
+      "Bash(npx vitest *)",
+      "Bash(npx tsc *)",
+      "Bash(export PATH=\"/c/Users/西城望月/AppData/Local/fnm_multishells/10652_1779287970807:$PATH\")",
+      "Bash(node ./server/node_modules/.bin/vitest run)",
+      "Bash(node --import tsx ./node_modules/.bin/vitest run)",
+      "Bash(/c/Users/西城望月/AppData/Local/fnm_multishells/10652_1779287970807/node.exe *)",
+      "Bash(bash *)",
+      "Bash(/c/Users/西城望月/AppData/Roaming/fnm/node-versions/v24.15.0/installation/node.exe ./node_modules/.pnpm/tsx@4.22.3/node_modules/tsx/dist/cli.mjs watch ./server/src/index.ts)"
     ]
   }
 }

@@ -8,6 +8,6 @@
     "build": "pnpm --filter shared build && pnpm --filter server build && pnpm --filter client build"
   },
   "devDependencies": {
-    "concurrently": "^9.0.0"
+    "concurrently": "^9.2.1"
   }
 }

@@ -91,6 +91,20 @@ export class Room {
     return true
   }
 
+  handleSinglePlayerStart(nickname: string): { playerId: string } {
+    const player = this.addPlayer(nickname, {
+      send: () => {}, // dummy session — 先占位，稍后替换
+    })
+    // 添加2个AI
+    this.addAiPlayer('小艾')
+    this.addAiPlayer('小慧')
+    return { playerId: player.id }
+  }
+
+  setPlayerSession(playerId: string, session: ClientSession) {
+    this.sessions.set(playerId, session)
+  }
+
   handleStartGame(playerId: string): boolean {
     if (this.players[this.ownerIndex]?.id !== playerId) return false
     if (this.game) return false
