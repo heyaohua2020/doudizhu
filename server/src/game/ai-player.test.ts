@@ -58,10 +58,10 @@ describe('aiPlayCards', () => {
     expect(result).toHaveLength(0)
   })
 
-  it('plays pair when no singles left', () => {
+  it('plays double-straight when consecutive pairs exist', () => {
     const hand = [c('3'),c('3','heart'),c('4'),c('4','heart'),c('5'),c('5','heart')]
     const result = aiPlayCards(hand, null)
-    expect(result).toHaveLength(2)
+    expect(result).toHaveLength(6)
     expect(result[0].rank).toBe('3')
   })
 

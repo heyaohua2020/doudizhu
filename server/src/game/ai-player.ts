@@ -173,9 +173,9 @@ function findLeadCards(hand: Card[]): Card[] {
     return ap
   }
 
-  // 有顺子 → 出最小的顺子
+  // 有顺子 → 出最小的顺子（优先清理长连牌）
   const straights = findStraight(byRank)
-  if (straights.length > 0 && singles.length > 1) {
+  if (straights.length > 0) {
     return straights[0]
   }
 
@@ -281,7 +281,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
           if (seq[j] !== seq[j - 1] + 1) { isConsecutive = false; break }
         }
         if (!isConsecutive) continue
-        if (seq[0] > pattern.rank) {
+        if (seq[seq.length - 1] > pattern.rank) {
           const straightCards = seq.map(r => byRank.get(r)![0])
           candidates.push(straightCards)
           break
@@ -302,7 +302,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
           if (seq[j][0] !== seq[j - 1][0] + 1) { isConsecutive = false; break }
         }
         if (!isConsecutive) continue
-        if (seq[0][0] > pattern.rank) {
+        if (seq[seq.length - 1][0] > pattern.rank) {
           candidates.push(seq.flatMap(([, cards]) => cards.slice(0, 2)))
           break
         }
@@ -324,7 +324,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
           if (seq[j][0] !== seq[j - 1][0] + 1) { isConsecutive = false; break }
         }
         if (!isConsecutive) continue
-        if (seq[0][0] > pattern.rank) {
+        if (seq[seq.length - 1][0] > pattern.rank) {
           const triples = seq.flatMap(([, cards]) => cards.slice(0, 3))
           if (pattern.type === 'airplane') {
             candidates.push(triples)

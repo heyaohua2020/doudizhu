@@ -32,6 +32,8 @@ export function useWebSocket() {
   const hintCards = ref<Card[]>([])
   // 提示出牌回调（替代 watch，避免响应式时序问题）
   let hintCallback: ((cards: Card[]) => void) | null = null
+  // 断线状态：在房间内时 WS 断开
+  const disconnected = ref(false)
 
   function connect() {
     // 如果已有连接，先关掉
@@ -42,10 +44,22 @@ export function useWebSocket() {
 
     socket.onopen = () => {
       connected.value = true
+      disconnected.value = false
+      // 断线重连：如果之前在房间内，尝试恢复连接
+      if (roomId.value && playerId.value) {
+        socket.send(JSON.stringify({
+          type: 'reconnect',
+          payload: { playerId: playerId.value, roomId: roomId.value },
+        }))
+      }
     }
 
     socket.onclose = () => {
       connected.value = false
+      // 如果在房间内断线，记录断线状态
+      if (roomId.value) {
+        disconnected.value = true
+      }
       // 自动重连
       setTimeout(() => connect(), 3000)
     }
@@ -112,9 +126,15 @@ export function useWebSocket() {
 
       case 'landlord_cards':
         bottomCards.value = payload.cards
-        // 只有地主本人获得底牌加入手牌
+        // 只有地主本人获得底牌加入手牌（重连时防重复添加）
         if (payload.landlordId && payload.landlordId === playerId.value) {
-          myCards.value = [...myCards.value, ...payload.cards]
+          const existingKeys = new Set(myCards.value.map(c => c.rank + '|' + (c.suit ?? c.jokerType ?? '')))
+          const newCards = (payload.cards as Card[]).filter(bc =>
+            !existingKeys.has(bc.rank + '|' + (bc.suit ?? bc.jokerType ?? ''))
+          )
+          if (newCards.length > 0) {
+            myCards.value = [...myCards.value, ...newCards]
+          }
         }
         // 更新地主牌数（20张）
         if (payload.landlordCardCount) {
@@ -164,12 +184,25 @@ export function useWebSocket() {
         break
 
       case 'hint_cards':
-        hintCards.value = payload.cards ?? []
         if (hintCallback) hintCallback(payload.cards ?? [])
         break
 
       case 'error':
         error.value = payload.message
+        // 重连失败（房间已不存在）→ 清空状态退回首页
+        if (
+          roomId.value &&
+          (payload.message?.includes('不存在') || payload.message?.includes('结束') ||
+           payload.message?.includes('重新加入'))
+        ) {
+          roomId.value = null
+          playerId.value = null
+          room.state = null
+          room.phase = 'waiting'
+          disconnected.value = false
+        }
+        // 3 秒后自动清除
+        setTimeout(() => { error.value = null }, 3000)
         break
     }
   }
@@ -199,6 +232,7 @@ export function useWebSocket() {
     room.phase = 'waiting'
     landlordId.value = null
     winner.value = null
+    disconnected.value = false
   }
 
   function getHint() {
@@ -241,6 +275,7 @@ export function useWebSocket() {
     lastPassPlayerId,
     playerCardCounts,
     hintCards,
+    disconnected,
     setHintCallback,
     connect,
     createRoom,

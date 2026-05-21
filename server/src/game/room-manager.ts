@@ -34,7 +34,7 @@ export class Room {
 
   get playerCount() { return this.players.length }
 
-  addPlayer(nickname: string, session: ClientSession): Player {
+  addPlayer(nickname: string, session?: ClientSession): Player {
     const player: CreatedPlayer = {
       id: `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
       nickname,
@@ -46,7 +46,14 @@ export class Room {
       aiControlled: false,
     }
     this.players.push(player)
-    this.sessions.set(player.id, session)
+    if (session) this.sessions.set(player.id, session)
+
+    // 如果新玩家是人类且当前房主是AI，自动转移房主给新玩家
+    const currentOwner = this.players[this.ownerIndex]
+    if (currentOwner?.aiControlled && session) {
+      this.ownerIndex = this.players.length - 1
+    }
+
     return player
   }
 
@@ -82,6 +89,46 @@ export class Room {
     }
   }
 
+  /**
+   * 标记玩家断线（保留玩家和手牌，移除 session）
+   * 游戏进行中时断线不直接移除，给重连机会
+   */
+  disconnectPlayer(playerId: string) {
+    const player = this.players.find(p => p.id === playerId)
+    if (!player) return
+    player.disconnectedAt = Date.now()
+    this.sessions.delete(playerId)
+
+    // 如果是游戏中且该玩家轮次，AI 代打
+    if (this.game) {
+      if (this.game.phase === 'calling' &&
+          this.players[this.game.currentCallIndex]?.id === playerId) {
+        // 叫分已有超时处理
+      } else if (this.game.phase === 'playing' &&
+                 this.players[this.game.currentPlayerIndex]?.id === playerId) {
+        // 出牌阶段：8秒后 AI 代打出牌
+        setTimeout(() => {
+          if (player.disconnectedAt && this.game && this.game.phase === 'playing' &&
+              this.players[this.game.currentPlayerIndex]?.id === playerId) {
+            const cards = aiPlayCards(player.cards, this.game.lastPlay)
+            this.handlePlayCards(player.id, cards)
+          }
+        }, 8000)
+      }
+    }
+  }
+
+  /**
+   * 重连玩家：重新绑定 session，清除断线标记
+   */
+  reconnectPlayer(playerId: string, session: ClientSession): boolean {
+    const player = this.players.find(p => p.id === playerId)
+    if (!player) return false
+    player.disconnectedAt = null
+    this.sessions.set(playerId, session)
+    return true
+  }
+
   handleAddAi(playerId: string): boolean {
     if (this.players[this.ownerIndex]?.id !== playerId) return false
     if (this.game) return false
@@ -92,10 +139,8 @@ export class Room {
   }
 
   handleSinglePlayerStart(nickname: string): { playerId: string } {
-    const player = this.addPlayer(nickname, {
-      send: () => {}, // dummy session — 先占位，稍后替换
-    })
-    // 添加2个AI
+    const player = this.addPlayer(nickname)
+    // 添加2个AI（AI 没有真实 session，靠 runAiAction 驱动）
     this.addAiPlayer('小艾')
     this.addAiPlayer('小慧')
     return { playerId: player.id }
@@ -150,7 +195,6 @@ export class Room {
       p.isReady = false
     })
 
-    const callOrder = [0, 1, 2]
     this.game = {
       deck,
       bottomCards,
@@ -258,6 +302,16 @@ export class Room {
           landlordId = p.id
         }
       }
+      // 全都不叫 → 重新发牌
+      if (maxScore === 0) {
+        this.clearCallTimer()
+        this.broadcast({ type: 'error', payload: { message: '🔄 全都不叫，重新发牌' } })
+        // 保留玩家，重新开始游戏
+        this.players.forEach(p => { p.cards = []; p.isLandlord = false })
+        this.game = null
+        this.startGame()
+        return
+      }
       this.setLandlord(landlordId)
       return
     }
@@ -276,38 +330,53 @@ export class Room {
     this.clearCallTimer()
     this.game.landlordId = playerId
     const player = this.players.find(p => p.id === playerId)
-    if (player) {
-      player.isLandlord = true
-      player.cards.push(...this.game.bottomCards)
-    }
+    if (!player) return
+    player.isLandlord = true
+    player.cards.push(...this.game.bottomCards)
+
     this.game.phase = 'playing'
     this.game.currentPlayerIndex = this.players.findIndex(p => p.id === playerId)
-    // 底牌广播给所有人（非地主只展示，不加手牌；地主在前端加到手牌）
+    // 底牌广播给所有人
+    const farmerPlayers = this.players.filter(p => p.id !== playerId)
     this.broadcast({ type: 'landlord_cards', payload: {
       cards: this.game.bottomCards,
       landlordId: playerId,
       landlordCardCount: player.cards.length,
-      farmerCardCount: this.players.filter(p => p.id !== playerId).map(p => p.cards.length),
-      farmerIds: this.players.filter(p => p.id !== playerId).map(p => p.id),
+      farmerCardCount: farmerPlayers.map(p => p.cards.length),
+      farmerIds: farmerPlayers.map(p => p.id),
     } })
     this.broadcast({ type: 'landlord_set', payload: { landlordId: playerId } })
-    // 通知客户端轮到谁出牌（landlord_set 改了 currentPlayerIndex 但要 next_turn 才广播）
     this.broadcast({ type: 'next_turn', payload: { currentPlayerIndex: this.game.currentPlayerIndex } })
     this.broadcastRoomState()
     this.scheduleNextAction()
   }
 
   handlePlayCards(playerId: string, cards: Card[]) {
-    if (!this.game || this.game.phase !== 'playing') return
+    if (!this.game || this.game.phase !== 'playing') {
+      this.sendTo(playerId, { type: 'error', payload: { message: '游戏未开始或已结束' } })
+      return
+    }
     const playerIdx = this.players.findIndex(p => p.id === playerId)
-    if (playerIdx !== this.game.currentPlayerIndex) return
+    if (playerIdx !== this.game.currentPlayerIndex) {
+      this.sendTo(playerId, { type: 'error', payload: { message: '还没轮到你出牌' } })
+      return
+    }
 
     const player = this.players[playerIdx]
 
     if (cards.length === 0) {
       // 过牌
+      if (!this.game.lastPlay || this.game.lastPlay.playerId === playerId) {
+        this.sendTo(playerId, { type: 'error', payload: { message: '你是先手，必须出牌' } })
+        return
+      }
       this.game.passCount++
       this.broadcast({ type: 'player_passed', payload: { playerId } })
+      // 出牌人之外两人都 pass → 出牌人获得自由出牌权
+      if (this.game.passCount >= 2) {
+        this.game.lastPlay = null
+        this.game.passCount = 0
+      }
       this.advanceTurn()
       return
     }
@@ -316,33 +385,39 @@ export class Room {
     const handCopy = [...player.cards]
     for (const card of cards) {
       const idx = handCopy.findIndex(c =>
-        c.rank === card.rank && c.suit === card.suit
+        c.rank === card.rank && (c.suit ?? c.jokerType) === (card.suit ?? card.jokerType)
       )
-      if (idx === -1) return // 非法出牌
+      if (idx === -1) {
+        this.sendTo(playerId, { type: 'error', payload: { message: '手牌中没有这些牌' } })
+        return
+      }
       handCopy.splice(idx, 1)
     }
 
     // 验证牌型
     const pattern = identifyPattern(cards)
-    if (!pattern) return
+    if (!pattern) {
+      this.sendTo(playerId, { type: 'error', payload: { message: '无效牌型' } })
+      return
+    }
 
     // 验证是否能打过上家
     if (this.game.lastPlay && this.game.lastPlay.playerId !== playerId) {
-      if (!canBeat(pattern, identifyPattern(this.game.lastPlay.cards)!)) return
+      const prevPattern = identifyPattern(this.game.lastPlay.cards)
+      if (!prevPattern || !canBeat(pattern, prevPattern)) {
+        this.sendTo(playerId, { type: 'error', payload: { message: '管不上' } })
+        return
+      }
     }
 
     if (pattern.type === 'bomb') this.game.bombsPlayed++
 
-    // 从手牌移除
-    const playedIndices: number[] = []
+    // 从手牌移除（验证已在上面完成，此处必定找到）
     for (const card of cards) {
       const idx = player.cards.findIndex(c =>
-        c.rank === card.rank && c.suit === card.suit
+        c.rank === card.rank && (c.suit ?? c.jokerType) === (card.suit ?? card.jokerType)
       )
-      if (idx !== -1) {
-        playedIndices.push(idx)
-        player.cards.splice(idx, 1)
-      }
+      player.cards.splice(idx, 1)
     }
 
     this.game.lastPlay = { playerId, cards }
@@ -369,11 +444,6 @@ export class Room {
   private advanceTurn() {
     if (!this.game) return
     this.game.currentPlayerIndex = (this.game.currentPlayerIndex + 1) % 3
-    // 如果连续两人 pass，则 lastPlay 重置
-    if (this.game.passCount >= 2) {
-      this.game.lastPlay = null
-      this.game.passCount = 0
-    }
     this.broadcast({
       type: 'next_turn',
       payload: { currentPlayerIndex: this.game.currentPlayerIndex },
@@ -383,6 +453,78 @@ export class Room {
 
   broadcastRoomState() {
     this.broadcast({ type: 'room_state', payload: this.toPublicState() })
+  }
+
+  /**
+   * 生成重连玩家的完整游戏状态消息序列
+   * 按顺序发送给客户端，客户端 handleMessage 按序处理恢复状态
+   */
+  getReconnectPayload(playerId: string): object[] {
+    const msgs: object[] = []
+    msgs.push({ type: 'room_state', payload: this.toPublicState() })
+
+    const player = this.players.find(p => p.id === playerId)
+    if (!this.game || !player) return msgs
+
+    // 发送玩家手牌
+    msgs.push({ type: 'deal_cards', payload: { cards: player.cards } })
+
+    // 游戏开始信息
+    msgs.push({
+      type: 'game_start',
+      payload: {
+        currentCallIndex: this.game.currentCallIndex,
+        cardCounts: Object.fromEntries(this.players.map(p => [p.id, p.cards.length])),
+      },
+    })
+
+    // 恢复叫分记录
+    if (this.game.phase === 'calling' || this.game.phase === 'playing' || this.game.phase === 'ended') {
+      for (const [pid, score] of Object.entries(this.game.callScores)) {
+        msgs.push({ type: 'player_called', payload: { playerId: pid, score } })
+      }
+      msgs.push({ type: 'next_caller', payload: { currentCallIndex: this.game.currentCallIndex } })
+    }
+
+    // 恢复地主信息
+    if (this.game.landlordId) {
+      const landlordPlayer = this.players.find(p => p.id === this.game!.landlordId)
+      const farmerPlayers = this.players.filter(p => p.id !== this.game!.landlordId)
+      msgs.push({
+        type: 'landlord_cards',
+        payload: {
+          cards: this.game.bottomCards,
+          landlordId: this.game.landlordId,
+          landlordCardCount: landlordPlayer?.cards.length ?? 0,
+          farmerCardCount: farmerPlayers.map(p => p.cards.length),
+          farmerIds: farmerPlayers.map(p => p.id),
+        },
+      })
+      msgs.push({ type: 'landlord_set', payload: { landlordId: this.game.landlordId } })
+    }
+
+    // 恢复出牌阶段状态
+    if (this.game.phase === 'playing' || this.game.phase === 'ended') {
+      if (this.game.lastPlay) {
+        const playPlayer = this.players.find(p => p.id === this.game!.lastPlay!.playerId)
+        msgs.push({
+          type: 'cards_played',
+          payload: {
+            playerId: this.game.lastPlay.playerId,
+            cards: this.game.lastPlay.cards,
+            remaining: playPlayer?.cards.length ?? 0,
+          },
+        })
+      }
+      msgs.push({ type: 'next_turn', payload: { currentPlayerIndex: this.game.currentPlayerIndex } })
+    }
+
+    // 游戏结束
+    if (this.game.phase === 'ended') {
+      msgs.push({ type: 'game_over', payload: { winnerId: this.game.landlordId ?? '', bombsCount: this.game.bombsPlayed } })
+    }
+
+    return msgs
   }
 
   destroy() {

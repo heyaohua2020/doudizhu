@@ -65,7 +65,30 @@ function serveFile(urlPath: string, res: http.ServerResponse) {
 
 const wss = new WebSocketServer({ server })
 
+// ===== 心跳检测：每 10 秒 ping 所有连接 =====
+const HEARTBEAT_INTERVAL = 10_000
+const heartbeatTimer = setInterval(() => {
+  wss.clients.forEach((ws: any) => {
+    if (ws._isAlive === false) {
+      // 未回应 pong，视为断线
+      ws.terminate()
+      return
+    }
+    ws._isAlive = false
+    ws.ping()
+  })
+}, HEARTBEAT_INTERVAL)
+
+server.on('close', () => {
+  clearInterval(heartbeatTimer)
+})
+
 wss.on('connection', (ws: WebSocket) => {
+  ;(ws as any)._isAlive = true
+  ws.on('pong', () => {
+    ;(ws as any)._isAlive = true
+  })
+
   let currentRoom: Room | null = null
   let playerId: string | null = null
 
@@ -182,8 +205,8 @@ wss.on('connection', (ws: WebSocket) => {
           const hint = aiPlayCards(currentRoom.players[pIdx].cards, currentRoom.game.lastPlay)
           ws.send(JSON.stringify({ type: 'hint_cards', payload: { cards: hint } }))
         } catch (e) {
-          const fallback = currentRoom.players[pIdx].cards.slice(0, 1)
-          ws.send(JSON.stringify({ type: 'hint_cards', payload: { cards: fallback } }))
+          // AI 逻辑异常时返回空（不出）而非乱出牌
+          ws.send(JSON.stringify({ type: 'hint_cards', payload: { cards: [] } }))
         }
         break
       }
@@ -199,6 +222,34 @@ wss.on('connection', (ws: WebSocket) => {
         playerId = null
         break
       }
+
+      case 'reconnect': {
+        // 已经有活跃 session 的忽略重连
+        if (currentRoom) return
+        const { playerId: oldPid, roomId: oldRid } = payload
+        if (!oldPid || !oldRid) return
+        const room = getRoom(oldRid)
+        if (!room) {
+          ws.send(JSON.stringify({ type: 'error', payload: { message: '房间不存在或已结束' } }))
+          return
+        }
+        const ok = room.reconnectPlayer(oldPid, { send: (d) => ws.send(d) })
+        if (!ok) {
+          ws.send(JSON.stringify({ type: 'error', payload: { message: '无法恢复连接，请重新加入房间' } }))
+          return
+        }
+        currentRoom = room
+        playerId = oldPid
+        ws.send(JSON.stringify({ type: 'room_joined', payload: { roomId: room.id, playerId: oldPid } }))
+        // 发送完整游戏状态
+        const stateMsgs = room.getReconnectPayload(oldPid)
+        for (const msg of stateMsgs) {
+          ws.send(JSON.stringify(msg))
+        }
+        // 通知房间其他玩家有人回来了
+        room.broadcastRoomState()
+        break
+      }
     }
     } catch (e) {
       console.error('ws handler error:', e)
@@ -207,10 +258,16 @@ wss.on('connection', (ws: WebSocket) => {
 
   ws.on('close', () => {
     if (currentRoom && playerId) {
-      currentRoom.removePlayer(playerId)
-      currentRoom.broadcastRoomState()
-      if (currentRoom.playerCount === 0) {
-        deleteRoom(currentRoom.id)
+      // 游戏进行中断线 → 标记断线保留位置；等待房中断线 → 直接移除
+      if (currentRoom.game) {
+        currentRoom.disconnectPlayer(playerId)
+        currentRoom.broadcastRoomState()
+      } else {
+        currentRoom.removePlayer(playerId)
+        currentRoom.broadcastRoomState()
+        if (currentRoom.playerCount === 0) {
+          deleteRoom(currentRoom.id)
+        }
       }
     }
   })

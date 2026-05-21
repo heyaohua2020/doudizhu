@@ -158,7 +158,10 @@
           <div v-if="ws.room.phase === 'playing'" class="playing-area">
             <!-- 最近出牌 -->
             <div v-if="lastPlayDisplay && lastPlayDisplay.cards.length > 0" class="played-group" :class="`from-${lastPlayDisplay.direction}`">
-              <div class="played-label">{{ lastPlayDisplay.playerName }}</div>
+              <div class="played-label">
+                <span class="played-direction">{{ lastPlayDisplay.directionArrow }}</span>
+                <span class="played-name">{{ lastPlayDisplay.playerName }}</span>
+              </div>
               <div class="played-cards-row">
                 <div
                   v-for="(c, ci) in lastPlayDisplay.cards"
@@ -195,6 +198,8 @@
 
       <!-- 我的手牌区 -->
       <div class="my-area">
+        <!-- 错误提示 -->
+        <div v-if="ws.error.value" class="error-toast">{{ ws.error.value }}</div>
         <div class="my-bar">
           <div class="my-avatar" :class="{ landlord: isLandlord(playerId) }">
             {{ myName.charAt(0) }}
@@ -320,7 +325,7 @@ function isPlayerTurn(spotIdx: number): boolean {
   return false
 }
 
-function isLandlord(id?: string) {
+function isLandlord(id?: string | null) {
   return !!id && id === ws.landlordId.value
 }
 
@@ -436,23 +441,27 @@ const lastPlayDisplay = computed(() => {
   const lp = ws.lastPlay.value
   if (!lp || lp.cards.length === 0) return null
   const playIdx = players.value.findIndex(p => p.id === lp.playerId)
-  if (playIdx === -1) return { cards: lp.cards, direction: 'center', playerName: '' }
+  if (playIdx === -1) return { cards: lp.cards, direction: 'center', playerName: '', directionArrow: '' }
 
   let direction = 'center'
   let playerName = players.value[playIdx]?.nickname ?? ''
+  let directionArrow = ''
 
   if (myIdx.value !== -1) {
     if (playIdx === myIdx.value) {
       direction = 'me'
-      playerName = '我'
+      playerName = players.value[playIdx]?.nickname ?? '我'
+      directionArrow = '⬆️'
     } else if (playIdx === (myIdx.value + 1) % 3) {
-      direction = 'right'
-    } else {
       direction = 'left'
+      directionArrow = '↘️'
+    } else {
+      direction = 'right'
+      directionArrow = '↙️'
     }
   }
 
-  return { cards: lp.cards, direction, playerName }
+  return { cards: lp.cards, direction, playerName, directionArrow }
 })
 
 function toggleCard(i: number) {
@@ -505,25 +514,36 @@ onUnmounted(() => {
 
 // ===== 触屏支持 =====
 let touchStartIdx = -1
+let touchActive = false // 防止 touch 后 emulated click 误触发
+let touchStartTime = 0
+let touchStartPos = { x: 0, y: 0 }
 
 function onTouchStart(e: TouchEvent, cardIdx: number) {
   if (!isMyTurn.value || ws.room.phase !== 'playing') return
   touchStartIdx = cardIdx
-  isDragging.value = true
+  touchActive = true
+  touchStartTime = Date.now()
+  const touch = e.touches[0]
+  touchStartPos = { x: touch.clientX, y: touch.clientY }
+  isDragging.value = false
   dragStartIdx.value = cardIdx
   dragEndIdx.value = cardIdx
 }
 
 function onTouchMove(e: TouchEvent) {
-  if (!isDragging.value || !cardsContainer.value) return
+  if (!touchActive || !cardsContainer.value) return
+  e.preventDefault()
   const touch = e.touches[0]
+  const dx = touch.clientX - touchStartPos.x
+  const dy = touch.clientY - touchStartPos.y
+  // 只有移动超过 10px 才认为是拖拽
+  if (Math.sqrt(dx * dx + dy * dy) < 10) return
+  
+  isDragging.value = true
   const rect = cardsContainer.value.getBoundingClientRect()
   const x = touch.clientX - rect.left
   const total = sortedCards.value.length
-  const isMobile = window.innerWidth <= 600
-  const minOverlap = isMobile ? 20 : 36
-  const overlap = Math.min(58, Math.max(minOverlap, 600 / Math.max(total, 1)))
-  const offset = isMobile ? 16 : 60
+  const { overlap, offset } = calcLayout(total)
   let hoverIdx = Math.round((x - offset - overlap / 2) / overlap)
   hoverIdx = Math.max(0, Math.min(total - 1, hoverIdx))
   if (hoverIdx === dragEndIdx.value) return
@@ -535,11 +555,16 @@ function onTouchMove(e: TouchEvent) {
 }
 
 function onTouchEnd() {
-  if (!isDragging.value) return
+  if (!touchActive) return
+  touchActive = false
+  const wasDragging = isDragging.value
   isDragging.value = false
-  if (dragStartIdx.value === dragEndIdx.value && touchStartIdx === dragStartIdx.value) {
-    // 单击由 onCardClick 处理
+  
+  // 如果不是拖拽，且点击时间短（< 200ms），则视为单击
+  if (!wasDragging && Date.now() - touchStartTime < 200) {
+    toggleCard(touchStartIdx)
   }
+  
   touchStartIdx = -1
 }
 
@@ -549,12 +574,21 @@ const isDragging = ref(false)
 const dragStartIdx = ref(-1)
 const dragEndIdx = ref(-1)
 
+/** 共享的牌布局参数计算 */
+function calcLayout(total: number) {
+  if (total === 0) return { overlap: 36, offset: 60 }
+  const isMobile = window.innerWidth <= 600
+  const minOverlap = isMobile ? 8 : 36
+  const overlap = isMobile 
+    ? Math.min(28, Math.max(minOverlap, 300 / Math.max(total, 1)))
+    : Math.min(58, Math.max(minOverlap, 600 / Math.max(total, 1)))
+  const offset = isMobile ? 10 : 60
+  return { overlap, offset }
+}
+
 function getCardStyle(i: number) {
   const total = sortedCards.value.length
-  const isMobile = window.innerWidth <= 600
-  const minOverlap = isMobile ? 20 : 36
-  const overlap = Math.min(58, Math.max(minOverlap, 600 / Math.max(total, 1)))
-  const offset = isMobile ? 16 : 60
+  const { overlap, offset } = calcLayout(total)
   return {
     left: (i * overlap + offset) + 'px',
     zIndex: i,
@@ -565,10 +599,7 @@ function getCardStyle(i: number) {
 const cardsContainerStyle = computed(() => {
   const total = sortedCards.value.length
   if (total === 0) return {}
-  const isMobile = window.innerWidth <= 600
-  const minOverlap = isMobile ? 20 : 36
-  const overlap = Math.min(58, Math.max(minOverlap, 600 / Math.max(total, 1)))
-  const offset = isMobile ? 16 : 60
+  const { overlap, offset } = calcLayout(total)
   const width = total * overlap + offset * 2
   return { width: width + 'px', minWidth: width + 'px' }
 })
@@ -576,8 +607,8 @@ const cardsContainerStyle = computed(() => {
 /** 单击：切换单张牌的选中状态（连续点选多张） */
 function onCardClick(i: number) {
   if (!isMyTurn.value || ws.room.phase !== 'playing') return
-  // 如果是拖拽结束触发的 click，忽略
-  if (isDragging.value) return
+  // 如果是触屏拖拽结束后的 emulated click，忽略
+  if (touchActive || isDragging.value) return
   toggleCard(i)
 }
 
@@ -600,10 +631,10 @@ function onCardsMouseMove(e: MouseEvent) {
   const rect = container.getBoundingClientRect()
   const x = e.clientX - rect.left
   const total = sortedCards.value.length
-  const overlap = Math.min(58, Math.max(36, 600 / Math.max(total, 1)))
+  const { overlap, offset } = calcLayout(total)
 
   // 找到鼠标下的牌索引
-  let hoverIdx = Math.round((x - 60 - overlap / 2) / overlap)
+  let hoverIdx = Math.round((x - offset - overlap / 2) / overlap)
   hoverIdx = Math.max(0, Math.min(total - 1, hoverIdx))
 
   if (hoverIdx === dragEndIdx.value) return
@@ -1155,9 +1186,61 @@ function onCardsMouseLeave() {
   from { opacity: 0; transform: scale(0.8); }
   to { opacity: 1; transform: scale(1); }
 }
+
+/* ——— 出牌者名称（放大两倍） ——— */
 .played-label {
-  font-size: 11px;
-  color: rgba(255,255,255,0.4);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 22px;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 1px 8px rgba(255,215,0,0.3);
+  background: rgba(0,0,0,0.45);
+  padding: 6px 20px;
+  border-radius: 14px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,215,0,0.15);
+  animation: labelPop 0.3s ease;
+}
+@keyframes labelPop {
+  from { opacity: 0; transform: scale(0.7) translateY(-6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.played-direction {
+  font-size: 20px;
+  line-height: 1;
+}
+.played-name {
+  color: #fff;
+  font-size: 18px;
+}
+
+/* ——— 出牌路径：方向入场动画 ——— */
+.from-left .played-card-wrapper {
+  animation: flyFromLeft 0.35s ease both;
+}
+.from-right .played-card-wrapper {
+  animation: flyFromRight 0.35s ease both;
+}
+.from-me .played-card-wrapper {
+  animation: flyFromBottom 0.35s ease both;
+}
+.from-center .played-card-wrapper {
+  animation: cardDrop 0.3s ease both;
+}
+@keyframes flyFromLeft {
+  from { opacity: 0; transform: translateX(-90px) scale(0.6); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes flyFromRight {
+  from { opacity: 0; transform: translateX(90px) scale(0.6); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes flyFromBottom {
+  from { opacity: 0; transform: translateY(50px) scale(0.6); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .played-cards-row {
   display: flex;
@@ -1374,6 +1457,30 @@ function onCardsMouseLeave() {
   background: rgba(100,200,255,0.25);
 }
 
+/* 错误提示 */
+.error-toast {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(229,57,53,0.9);
+  color: white;
+  padding: 4px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: bold;
+  white-space: nowrap;
+  z-index: 30;
+  animation: toastFade 2s ease forwards;
+  pointer-events: none;
+}
+@keyframes toastFade {
+  0% { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  10% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  80% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+}
+
 /* 手牌 */
 .my-cards-container {
   overflow-x: auto;
@@ -1469,22 +1576,26 @@ function onCardsMouseLeave() {
   .hint-act { padding: 8px 10px; }
 
   /* 手牌容器 */
-  .my-cards { height: 90px; }
+  .my-cards { height: 120px; }
   .my-cards-container { padding: 0; }
-  .card-slot.selected { transform: translateY(-14px); }
+  .card-slot.selected { transform: translateY(-10px); }
   /* 手机端点击选牌不 hover 抬起 */
   .card-slot:hover { transform: none; z-index: auto !important; }
-  .card-slot.selected:hover { transform: translateY(-14px); }
+  .card-slot.selected:hover { transform: translateY(-10px); }
 
-  /* 手牌区 card 缩放 50% */
+  /* 手牌区 card 缩放 38% */
   .card-slot :deep(.card-face) {
     transform-origin: bottom center;
-    transform: scale(0.5);
+    transform: scale(0.38);
   }
   .card-slot.selected :deep(.card-face) {
     transform-origin: bottom center;
-    transform: scale(0.5);
+    transform: scale(0.38);
   }
+  .card-slot :deep(.rank-text) { font-size: 12px !important; }
+  .card-slot :deep(.suit-text) { font-size: 8px !important; }
+  .card-slot :deep(.center-suit) { font-size: 28px !important; }
+  .card-slot :deep(.joker-deco) { font-size: 32px !important; }
 
   /* 中央区 */
   .center-play-area { min-width: 160px; min-height: 80px; }
@@ -1494,18 +1605,46 @@ function onCardsMouseLeave() {
   .my-turn-prompt { font-size: 12px; padding: 3px 12px; }
 
   /* 出牌区 */
-  .played-label { font-size: 9px; }
+  .played-label {
+    font-size: 16px;
+    padding: 4px 12px;
+    gap: 4px;
+  }
+  .played-direction { font-size: 14px; }
+  .played-name { font-size: 13px; }
+  .played-cards-row { gap: -4px; }
+  .played-card-wrapper { width: 40px; overflow: visible; }
+  .played-card-wrapper :deep(.card-item) {
+    width: 40px !important; height: 58px !important; border-radius: 4px;
+    border-width: 1px;
+  }
+  .played-card-wrapper :deep(.irank) { font-size: 11px !important; }
+  .played-card-wrapper :deep(.isuit) { font-size: 7px !important; }
+  .played-card-wrapper :deep(.ibig-suit), .played-card-wrapper :deep(.joker-icon) {
+    font-size: 18px !important;
+  }
 
   /* 结果卡 */
-  .result-card { padding: 24px 28px; }
+  .result-card {
+    padding: 24px 20px; max-width: 85vw; box-sizing: border-box;
+  }
   .result-icon { font-size: 40px; }
-  .result-title { font-size: 22px; }
-  .result-detail { font-size: 11px; gap: 10px; }
+  .result-title { font-size: 20px; }
+  .result-detail { font-size: 11px; gap: 8px; flex-wrap: wrap; }
   .btn-replay { padding: 10px 28px; font-size: 14px; }
 
   /* 等待房间 */
-  .waiting-card { width: 90%; max-width: 320px; padding: 24px 16px; }
+  .waiting-card {
+    width: 90%; max-width: 340px; min-width: 0;
+    padding: 20px 14px; box-sizing: border-box;
+  }
   .room-tag { font-size: 14px; }
+  .room-tag strong { font-size: 18px; }
   .btn-start { padding: 10px 30px; font-size: 14px; }
+  .seats { gap: 8px; }
+  .seat { width: 100px; height: 120px; }
+  .seat-avatar { width: 36px; height: 36px; font-size: 16px; }
+  .seat-name { font-size: 12px; }
+  .btn-add-ai { font-size: 11px; padding: 4px 10px; }
 }
 </style>

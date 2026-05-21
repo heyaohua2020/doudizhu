@@ -6,9 +6,35 @@
 - **pnpm**（项目包管理器）
 - **ngrok**（内网穿透工具，已安装 v3.39.2）
 
-## 一键启动（完整命令）
+---
 
-在 **项目根目录** `H:\doudizhu` 下执行以下两条命令（**先开服务，再开隧道**）：
+## 快速启动（推荐 🚀）
+
+双击项目根目录的 **`start.bat`** 即可一键启动：
+
+```bat
+# 项目根目录下
+start.bat    # 一键启动
+stop.bat     # 一键停止
+```
+
+### start.bat 会帮你做：
+
+1. **清理旧进程** — 自动杀掉 3001 端口和 ngrok 的旧进程
+2. **启动游戏服务器** — 弹出新窗口运行 `pnpm --filter server dev`
+3. **等待服务就绪** — 轮询 `http://localhost:3001` 直到 200
+4. **启动 ngrok 隧道** — 弹出新窗口运行 ngrok
+5. **显示公网地址** — 自动提取 ngrok URL 并打印
+6. **打开浏览器** — 按任意键自动打开本地页面
+
+> **提示：** 启动窗口关闭不影响服务运行，服务端窗口和 ngrok 窗口保持打开即可。
+> 关闭时双击 `stop.bat`，或直接关掉服务端 + ngrok 窗口。
+
+---
+
+## 手动启动
+
+如果不用 `.bat` 脚本，也可在命令行分步执行：
 
 ### 1️⃣ 启动游戏服务器
 
@@ -22,7 +48,7 @@ pnpm --filter server dev
 Doudizhu server running on port 3001
 ```
 
-> **注意：** 这个命令会保持前台运行（tsx watch 模式，代码修改自动重启）。需要让它一直在后台就另开一个终端窗口，或使用 `nohup` / 后台运行。
+> **注意：** 这个命令会保持前台运行（tsx watch 模式，代码修改自动重启）。需要让它一直在后台就另开一个终端窗口。
 
 ### 2️⃣ 启动 ngrok 隧道（新开一个终端）
 
@@ -37,6 +63,18 @@ url=https://xxxx-xxxx-xxx.ngrok-free.dev
 ```
 
 那个 `https://...ngrok-free.dev` 地址就是你的公网联机入口。
+
+---
+
+## 辅助脚本说明
+
+项目根目录下有三个辅助文件：
+
+| 文件 | 用途 |
+|------|------|
+| **start.bat** | 一键启动（杀旧 → 启服务 → 启隧道 → 显示地址） |
+| **stop.bat** | 一键停止（杀 ngrok + 杀 3001 端口进程） |
+| **get_ngrok_url.py** | 从 ngrok API 提取公网地址（被 start.bat 调用） |
 
 ---
 
@@ -87,36 +125,31 @@ ngrok config add-authtoken 你的token
 
 ## 停止服务
 
-### 方式一：手动停止（推荐）
+### 方式一：双击 stop.bat（推荐）
+
+```bat
+stop.bat    # 自动杀 ngrok + 杀 3001 端口
+```
+
+### 方式二：手动停止
 
 在各自终端窗口按 `Ctrl + C`：
 
 1. **服务器终端** → 按 `Ctrl + C` 关掉 tsx / node 进程
 2. **ngrok 终端** → 按 `Ctrl + C` 关掉隧道
 
-### 方式二：强制结束所有
+### 方式三：强制结束
 
 如果终端已经关了或者进程卡死了：
 
 ```bash
-# 停 ngrok（根据 PID）
+# 停 ngrok
 ngrok kill
 
 # 停游戏服务器（根据端口）
 # Windows:
 netstat -ano | findstr :3001
 taskkill /PID <进程ID> /F
-
-# 或用一行命令杀端口
-# Windows PowerShell:
-# Stop-Process -Id (Get-NetTCPConnection -LocalPort 3001).OwningProcess -Force
-```
-
-### 方式三：一键重启（先停旧的再开新的）
-
-```bash
-ngrok kill
-# 再重新 ngrok http 3001
 ```
 
 ---
@@ -132,13 +165,25 @@ ngrok kill
 ngrok http 3001
 ```
 
-### 端口 3001 被占用
+### 端口 3001 被占用或 node.exe 越开越多
 
-换个端口启动：
+旧进程没杀干净会导致多个 node.exe 堆积。解决方案：
+
+1. 优先用 `stop.bat` 停止（三重清理：端口杀 + 命令行匹配补杀 + 杀 ngrok）
+2. 如果进程已不占端口（孤儿进程），手动查杀：
+
+```bash
+# 查看所有本项目相关的 node 进程
+tasklist /FI "IMAGENAME eq node.exe" /V
+
+# 或启动前一键强杀所有本项目 node 进程（慎用）
+wmic process where "name='node.exe' and commandline like '%doudizhu%'" delete
+```
+
+3. 换个端口启动：
 
 ```bash
 PORT=3002 pnpm --filter server dev
-# ngrok 也要跟着改
 ngrok http 3002
 ```
 
@@ -149,3 +194,7 @@ ngrok http 3002
 ```bash
 pnpm --filter client build
 ```
+
+### start.bat 弹出新窗口找不到 pnpm
+
+如果使用 fnm 管理 Node 版本，新 `cmd` 窗口可能不自动加载 fnm 环境。编辑 `start.bat`，取消第 30 行的注释（fnm 初始化那行），注释掉第 31 行（原来的 pnpm 启动行）。

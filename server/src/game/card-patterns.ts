@@ -83,21 +83,34 @@ export function identifyPattern(cards: Card[]): PatternResult | null {
   }
 
   // 飞机（不带/带单/带对）
-  const tripleValues = [...rankCounts.entries()].filter(([, c]) => c === 3).map(([v]) => v).sort((a, b) => a - b)
+  const tripleValues = [...rankCounts.entries()].filter(([, c]) => c >= 3).map(([v]) => v).sort((a, b) => a - b)
   if (tripleValues.length >= 2) {
     const consecutive = findLongestConsecutive(tripleValues)
     if (consecutive.length >= 2) {
       const tripleCount = consecutive.length
-      const remainingCount = n - tripleCount * 3
 
-      if (remainingCount === 0) {
+      // 计算移除连续三张后各点数剩余张数
+      const remaining = new Map(rankCounts)
+      for (const v of consecutive) {
+        const left = remaining.get(v)! - 3
+        if (left > 0) remaining.set(v, left)
+        else remaining.delete(v)
+      }
+      const remainingEntries = [...remaining.entries()]
+      const totalRemaining = remainingEntries.reduce((s, [, c]) => s + c, 0)
+
+      if (totalRemaining === 0) {
         return { type: 'airplane', rank: Math.max(...consecutive), length: tripleCount }
       }
-      if (remainingCount === tripleCount) {
+      if (totalRemaining === tripleCount) {
         return { type: 'airplane_single', rank: Math.max(...consecutive), length: tripleCount }
       }
-      if (remainingCount === tripleCount * 2) {
-        return { type: 'airplane_pair', rank: Math.max(...consecutive), length: tripleCount }
+      if (totalRemaining === tripleCount * 2) {
+        // 验证剩余牌能凑出足够的对子
+        const pairCount = remainingEntries.reduce((s, [, c]) => s + Math.floor(c / 2), 0)
+        if (pairCount >= tripleCount) {
+          return { type: 'airplane_pair', rank: Math.max(...consecutive), length: tripleCount }
+        }
       }
     }
   }
