@@ -172,7 +172,11 @@ export class Room {
 
     this.broadcast({
       type: 'game_start',
-      payload: { currentCallIndex: 0 },
+      payload: {
+        currentCallIndex: 0,
+        // 广播各玩家初始牌数，让所有人能看到对手的剩余牌数
+        cardCounts: Object.fromEntries(this.players.map((p, i) => [p.id, hands[i].length])),
+      },
     })
 
     this.broadcastRoomState()
@@ -275,11 +279,20 @@ export class Room {
     if (player) {
       player.isLandlord = true
       player.cards.push(...this.game.bottomCards)
-      this.sendTo(playerId, { type: 'landlord_cards', payload: { cards: this.game.bottomCards } })
     }
     this.game.phase = 'playing'
     this.game.currentPlayerIndex = this.players.findIndex(p => p.id === playerId)
+    // 底牌广播给所有人（非地主只展示，不加手牌；地主在前端加到手牌）
+    this.broadcast({ type: 'landlord_cards', payload: {
+      cards: this.game.bottomCards,
+      landlordId: playerId,
+      landlordCardCount: player.cards.length,
+      farmerCardCount: this.players.filter(p => p.id !== playerId).map(p => p.cards.length),
+      farmerIds: this.players.filter(p => p.id !== playerId).map(p => p.id),
+    } })
     this.broadcast({ type: 'landlord_set', payload: { landlordId: playerId } })
+    // 通知客户端轮到谁出牌（landlord_set 改了 currentPlayerIndex 但要 next_turn 才广播）
+    this.broadcast({ type: 'next_turn', payload: { currentPlayerIndex: this.game.currentPlayerIndex } })
     this.broadcastRoomState()
     this.scheduleNextAction()
   }

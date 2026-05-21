@@ -72,7 +72,7 @@
 
 <script setup lang="ts">
 import { inject, ref, onMounted, onUnmounted } from 'vue'
-import { startBgm, stopBgm, setVolume } from '../composables/useSound'
+import { startBgm, stopBgm, setVolume, setBgmMp3Src, setBgmMode, getBgmMode } from '../composables/useSound'
 
 const ws: ReturnType<typeof import('../composables/useWebSocket').useWebSocket> = inject('ws')!
 
@@ -97,6 +97,9 @@ function startSingle() {
 const soundEnabled = ref(true)
 
 onMounted(() => {
+  // 默认用 MP3 作为背景音乐
+  setBgmMp3Src('/bgm/qq欢乐斗地主开场配乐.Mp3')
+  setBgmMode('mp3')
   if (soundEnabled.value) startBgm()
 })
 
@@ -361,5 +364,17 @@ function handleSubmit() {
   margin-top: 12px;
   color: #ff6b6b;
   font-size: 13px;
+}
+
+/* ===== 手机端适配 ===== */
+@media (max-width: 600px) {
+  .home-card { width: 92%; padding: 28px 20px; }
+  .title { font-size: 28px; letter-spacing: 2px; }
+  .logo-icon { font-size: 36px; }
+  .input { padding: 10px 12px; }
+  .btn { padding: 10px; }
+  .tabs button { padding: 8px; }
+  .btn-single { padding: 14px; }
+  .sound-toggle { width: 34px; height: 34px; font-size: 15px; top: 10px; right: 10px; }
 }
 </style>

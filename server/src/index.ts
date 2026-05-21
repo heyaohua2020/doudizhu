@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { createRoom, getRoom, deleteRoom, Room } from './game/room-manager'
+import { aiPlayCards } from './game/ai-player'
 import type { Card } from '@doudizhu/shared'
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10)
@@ -32,7 +33,8 @@ const server = http.createServer((req, res) => {
 
 function serveFile(urlPath: string, res: http.ServerResponse) {
   // 安全处理：防止路径遍历
-  const safePath = path.normalize(urlPath).replace(/^[/\\]+/, '')
+  const decodedPath = decodeURIComponent(urlPath)
+  const safePath = path.normalize(decodedPath).replace(/^[/\\\\]+/, '')
   const filePath = path.join(CLIENT_DIR, safePath)
 
   if (!filePath.startsWith(CLIENT_DIR)) {
@@ -77,7 +79,8 @@ wss.on('connection', (ws: WebSocket) => {
 
     const { type, payload = {} } = msg
 
-    switch (type) {
+    try {
+      switch (type) {
       case 'create_room': {
         if (currentRoom) return
         const room = createRoom()
@@ -170,6 +173,21 @@ wss.on('connection', (ws: WebSocket) => {
         break
       }
 
+      case 'get_hint': {
+        if (!currentRoom || !playerId || !currentRoom.game) return
+        if (currentRoom.game.phase !== 'playing') return
+        const pIdx = currentRoom.players.findIndex(p => p.id === playerId)
+        if (pIdx !== currentRoom.game.currentPlayerIndex) return
+        try {
+          const hint = aiPlayCards(currentRoom.players[pIdx].cards, currentRoom.game.lastPlay)
+          ws.send(JSON.stringify({ type: 'hint_cards', payload: { cards: hint } }))
+        } catch (e) {
+          const fallback = currentRoom.players[pIdx].cards.slice(0, 1)
+          ws.send(JSON.stringify({ type: 'hint_cards', payload: { cards: fallback } }))
+        }
+        break
+      }
+
       case 'leave_room': {
         if (!currentRoom || !playerId) return
         currentRoom.removePlayer(playerId)
@@ -181,6 +199,9 @@ wss.on('connection', (ws: WebSocket) => {
         playerId = null
         break
       }
+    }
+    } catch (e) {
+      console.error('ws handler error:', e)
     }
   })
 

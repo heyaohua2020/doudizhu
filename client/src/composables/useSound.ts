@@ -16,6 +16,11 @@ let bgmInterval: ReturnType<typeof setInterval> | null = null
 let isBgmPlaying = false
 let bgmGain: GainNode | null = null
 
+// ===== MP3 背景音乐 =====
+let bgmAudio: HTMLAudioElement | null = null
+let bgmMode: 'synth' | 'mp3' = 'synth'
+let bgmMp3Src: string | null = null
+
 function getCtx(): AudioContext {
   if (!audioCtx) {
     audioCtx = new AudioContext()
@@ -173,9 +178,21 @@ function playBgmPhrase(startTime: number, speed = 1) {
   }
 }
 
-/** 启动背景音乐 */
+/** 启动背景音乐（支持合成/MP3 两种模式） */
 export function startBgm() {
   if (isBgmPlaying) return
+
+  if (bgmMode === 'mp3' && bgmMp3Src) {
+    // === MP3 模式 ===
+    bgmAudio = new Audio(bgmMp3Src)
+    bgmAudio.loop = true
+    bgmAudio.volume = masterGain ? masterGain.gain.value : 0.5
+    bgmAudio.play().catch(() => {})
+    isBgmPlaying = true
+    return
+  }
+
+  // === 合成模式（默认） ===
   isBgmPlaying = true
   const ctx = getCtx()
 
@@ -197,6 +214,42 @@ export function stopBgm() {
     clearTimeout(bgmInterval)
     bgmInterval = null
   }
+  if (bgmAudio) {
+    bgmAudio.pause()
+    bgmAudio.src = ''
+    bgmAudio = null
+  }
+}
+
+/** 设置 MP3 背景音乐源（传入 URL 或文件路径） */
+export function setBgmMp3Src(url: string | null) {
+  bgmMp3Src = url
+  if (!url) {
+    bgmMode = 'synth'
+  }
+}
+
+/** 切换 BGM 模式：'synth' 合成 / 'mp3' / 'off' */
+export function setBgmMode(mode: 'synth' | 'mp3' | 'off') {
+  const wasPlaying = isBgmPlaying
+  stopBgm()
+  if (mode === 'off') {
+    return
+  }
+  bgmMode = mode === 'mp3' ? 'mp3' : 'synth'
+  if (wasPlaying) {
+    startBgm()
+  }
+}
+
+/** 获取当前 BGM 模式 */
+export function getBgmMode(): string {
+  return bgmMode
+}
+
+/** 获取当前 MP3 源地址 */
+export function getBgmMp3Src(): string | null {
+  return bgmMp3Src
 }
 
 // ===== 音效 =====
@@ -347,96 +400,20 @@ export function playLandlordSound() {
   })
 }
 
-/** 胜利音效 — 欢快上行 */
+/** 胜利音效 — MP3 */
 export function playWinSound() {
-  const ctx = getCtx()
-  const master = getMaster()
-  const now = ctx.currentTime
-
-  const melody = [
-    [PENTATONIC.C5[0], 0.12],
-    [PENTATONIC.C5[1], 0.12],
-    [PENTATONIC.C5[2], 0.12],
-    [PENTATONIC.C5[3], 0.12],
-    [PENTATONIC.C5[4], 0.15],
-    [PENTATONIC.C6[0], 0.15],
-    [PENTATONIC.C6[1], 0.20],
-    [PENTATONIC.C6[2], 0.35],
-  ]
-
-  let t = now
-  for (const [freq, dur] of melody) {
-    const osc = ctx.createOscillator()
-    osc.type = 'triangle'
-
-    const g = ctx.createGain()
-    g.gain.setValueAtTime(0, t)
-    g.gain.linearRampToValueAtTime(0.08, t + 0.02)
-    g.gain.setValueAtTime(0.06, t + (dur as number) - 0.04)
-    g.gain.linearRampToValueAtTime(0, t + (dur as number))
-
-    // 叠加第二声部（三度）
-    const osc2 = ctx.createOscillator()
-    osc2.type = 'sine'
-    osc2.frequency.value = (freq as number) * 1.25
-
-    const g2 = ctx.createGain()
-    g2.gain.setValueAtTime(0, t)
-    g2.gain.linearRampToValueAtTime(0.04, t + 0.02)
-    g2.gain.setValueAtTime(0.03, t + (dur as number) - 0.04)
-    g2.gain.linearRampToValueAtTime(0, t + (dur as number))
-
-    osc.frequency.value = freq as number
-    osc.connect(g)
-    g.connect(master)
-    osc.start(t)
-    osc.stop(t + (dur as number) + 0.02)
-
-    osc2.connect(g2)
-    g2.connect(master)
-    osc2.start(t)
-    osc2.stop(t + (dur as number) + 0.02)
-
-    t += dur as number
-  }
+  const vol = masterGain ? masterGain.gain.value : 0.5
+  const audio = new Audio('/sfx/win.mp3')
+  audio.volume = vol
+  audio.play().catch(() => {})
 }
 
-/** 失败音效 — 下行叹息 */
+/** 失败音效 — MP3 */
 export function playLoseSound() {
-  const ctx = getCtx()
-  const master = getMaster()
-  const now = ctx.currentTime
-
-  const melody = [
-    [PENTATONIC.C5[3], 0.2],
-    [PENTATONIC.C5[1], 0.2],
-    [PENTATONIC.C4[4], 0.2],
-    [PENTATONIC.C4[2], 0.3],
-    [PENTATONIC.C4[0], 0.5],
-  ]
-
-  let t = now
-  for (const [freq, dur] of melody) {
-    const osc = ctx.createOscillator()
-    osc.type = 'sawtooth'
-    osc.frequency.value = freq as number
-
-    const g = ctx.createGain()
-    g.gain.setValueAtTime(0.04, t)
-    g.gain.linearRampToValueAtTime(0, t + (dur as number))
-
-    const filter = ctx.createBiquadFilter()
-    filter.type = 'lowpass'
-    filter.frequency.value = 600
-
-    osc.connect(filter)
-    filter.connect(g)
-    g.connect(master)
-    osc.start(t)
-    osc.stop(t + (dur as number) + 0.02)
-
-    t += dur as number
-  }
+  const vol = masterGain ? masterGain.gain.value : 0.5
+  const audio = new Audio('/sfx/lost.mp3')
+  audio.volume = vol
+  audio.play().catch(() => {})
 }
 
 /** 发牌音效 — 快速卡牌声 */

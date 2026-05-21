@@ -86,41 +86,51 @@
           </div>
         </div>
 
-        <!-- 上家（位置1） -->
-        <div class="player-spot top-spot" :class="{ active: isPlayerTurn(1) }">
-          <div class="spot-avatar" :class="{ landlord: isLandlord(players[1]?.id) }">
-            {{ players[1]?.aiControlled ? '🤖' : (players[1]?.nickname?.charAt(0) ?? '?') }}
-            <div v-if="isLandlord(players[1]?.id)" class="crown">👑</div>
+        <!-- 上家（我 +1） -->
+        <div class="player-spot top-spot" :class="{ active: isPlayerTurn(spotIndices.top) }">
+          <div class="spot-avatar" :class="{ landlord: isLandlord(players[spotIndices.top]?.id) }">
+            {{ players[spotIndices.top]?.aiControlled ? '🤖' : (players[spotIndices.top]?.nickname?.charAt(0) ?? '?') }}
+            <div v-if="isLandlord(players[spotIndices.top]?.id)" class="crown">👑</div>
           </div>
           <div class="spot-info">
-            <span class="spot-name">{{ players[1]?.nickname ?? '等待中' }}</span>
-            <span v-if="players[1]?.aiControlled" class="ai-tag">AI</span>
-            <span v-if="isLandlord(players[1]?.id)" class="landlord-tag">地主</span>
+            <div class="spot-name-row">
+              <span class="spot-name">{{ players[spotIndices.top]?.nickname ?? '等待中' }}</span>
+            </div>
+            <div class="spot-tags">
+              <span v-if="players[spotIndices.top]?.aiControlled" class="ai-tag">AI</span>
+              <span v-if="isLandlord(players[spotIndices.top]?.id)" class="landlord-tag">地主</span>
+              <span v-else-if="players[spotIndices.top]" class="farmer-tag">农民</span>
+            </div>
           </div>
-          <div class="spot-count">✕ {{ players[1] ? getPlayerCardCount(players[1].id) : 0 }}</div>
+          <div class="spot-count">✕ {{ players[spotIndices.top] ? getPlayerCardCount(players[spotIndices.top].id) : 0 }}</div>
           <!-- 玩家状态 -->
-          <div v-if="callScoreText && callScoreText.idx === 1" class="status-tag call-status">
+          <div v-if="callScoreText && callScoreText.idx === spotIndices.top" class="status-tag call-status">
             {{ callScoreText.text }}
           </div>
-          <div v-if="passDisplayIdx === 1" class="status-tag pass-status">不出</div>
+          <div v-if="passDisplayIdx === spotIndices.top" class="status-tag pass-status">不出</div>
         </div>
 
-        <!-- 下家（位置2） -->
-        <div class="player-spot right-spot" :class="{ active: isPlayerTurn(2) }">
-          <div class="spot-avatar" :class="{ landlord: isLandlord(players[2]?.id) }">
-            {{ players[2]?.aiControlled ? '🤖' : (players[2]?.nickname?.charAt(0) ?? '?') }}
-            <div v-if="isLandlord(players[2]?.id)" class="crown">👑</div>
+        <!-- 下家（我 +2） -->
+        <div class="player-spot right-spot" :class="{ active: isPlayerTurn(spotIndices.right) }">
+          <div class="spot-avatar" :class="{ landlord: isLandlord(players[spotIndices.right]?.id) }">
+            {{ players[spotIndices.right]?.aiControlled ? '🤖' : (players[spotIndices.right]?.nickname?.charAt(0) ?? '?') }}
+            <div v-if="isLandlord(players[spotIndices.right]?.id)" class="crown">👑</div>
           </div>
           <div class="spot-info">
-            <span class="spot-name">{{ players[2]?.nickname ?? '等待中' }}</span>
-            <span v-if="players[2]?.aiControlled" class="ai-tag">AI</span>
-            <span v-if="isLandlord(players[2]?.id)" class="landlord-tag">地主</span>
+            <div class="spot-name-row">
+              <span class="spot-name">{{ players[spotIndices.right]?.nickname ?? '等待中' }}</span>
+            </div>
+            <div class="spot-tags">
+              <span v-if="players[spotIndices.right]?.aiControlled" class="ai-tag">AI</span>
+              <span v-if="isLandlord(players[spotIndices.right]?.id)" class="landlord-tag">地主</span>
+              <span v-else-if="players[spotIndices.right]" class="farmer-tag">农民</span>
+            </div>
           </div>
-          <div class="spot-count">✕ {{ players[2] ? getPlayerCardCount(players[2].id) : 0 }}</div>
-          <div v-if="callScoreText && callScoreText.idx === 2" class="status-tag call-status">
+          <div class="spot-count">✕ {{ players[spotIndices.right] ? getPlayerCardCount(players[spotIndices.right].id) : 0 }}</div>
+          <div v-if="callScoreText && callScoreText.idx === spotIndices.right" class="status-tag call-status">
             {{ callScoreText.text }}
           </div>
-          <div v-if="passDisplayIdx === 2" class="status-tag pass-status">不出</div>
+          <div v-if="passDisplayIdx === spotIndices.right" class="status-tag pass-status">不出</div>
         </div>
 
         <!-- 中央出牌区 -->
@@ -198,6 +208,7 @@
           </div>
           <div class="my-actions">
             <template v-if="ws.room.phase === 'playing' && isMyTurn">
+              <button class="act-btn hint-act" @click="onHint">💡 提示</button>
               <button class="act-btn pass-act" @click="ws.playCards([])" :disabled="!canPass">
                 🙅 不出
               </button>
@@ -215,7 +226,7 @@
         </div>
 
         <div class="my-cards-container" ref="cardsContainer" @mousemove="onCardsMouseMove" @mouseup="onCardsMouseUp" @mouseleave="onCardsMouseLeave">
-          <div class="my-cards">
+          <div class="my-cards" :style="cardsContainerStyle">
             <div
               v-for="(card, i) in sortedCards"
               :key="`${card.rank}-${card.suit}-${i}`"
@@ -228,6 +239,9 @@
               :style="getCardStyle(i)"
               @mousedown.prevent="onCardsMouseDown($event, i)"
               @click="onCardClick(i)"
+              @touchstart.prevent="onTouchStart($event, i)"
+              @touchmove="onTouchMove"
+              @touchend="onTouchEnd"
             >
               <CardFace :card="card" />
             </div>
@@ -239,7 +253,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, reactive, ref, watch } from 'vue'
+import { computed, inject, reactive, ref, watch, onUnmounted } from 'vue'
 import type { Card } from '@doudizhu/shared'
 import CardFace from '../components/CardFace.vue'
 import CardItem from '../components/CardItem.vue'
@@ -282,6 +296,16 @@ const seatList = computed(() => {
 const playerId = computed(() => ws.playerId.value)
 const myName = computed(() => players.value.find(p => p.id === playerId.value)?.nickname ?? '我')
 const myIdx = computed(() => players.value.findIndex(p => p.id === playerId.value))
+
+/** 基于自身索引计算各座位的绝对索引 */
+const spotIndices = computed(() => {
+  const base = myIdx.value
+  if (base === -1) return { top: 1, right: 2 }
+  return {
+    top: (base + 1) % 3,
+    right: (base + 2) % 3,
+  }
+})
 
 const isMyTurn = computed(() => {
   if (!playerId.value || myIdx.value === -1) return false
@@ -374,8 +398,9 @@ watch(() => ws.room.phase, (phase) => {
 watch(() => [...selectedIndices], () => {
   if (!isDragging.value && selectedIndices.size > 0) playSelectSound()
 })
-// 出牌
+// 出牌：清除提示 + 播放音效
 watch(() => ws.lastPlay.value, (lp, oldLp) => {
+  ws.hintCards.value = []
   if (lp && lp.cards.length > 0 && lp.playerId !== ws.lastPassPlayerId.value) {
     playCardSound()
   }
@@ -446,6 +471,78 @@ function onPlayCards() {
   selectedIndices.clear()
 }
 
+/** 点击提示按钮 → 发请求 → 高亮提示的牌 */
+function onHint() {
+  ws.getHint()
+}
+
+// 提示回调：收到 hint_cards 时直接选牌（比 watch 更可靠）
+ws.setHintCallback((hint: any[]) => {
+  if (!hint || hint.length === 0) return
+  selectedIndices.clear()
+  const idxs: number[] = []
+  const remaining = [...sortedCards.value]
+  for (const hc of hint) {
+    const found = remaining.findIndex(c => c.rank === hc.rank && (c.suit ?? c.jokerType) === (hc.suit ?? hc.jokerType))
+    if (found !== -1) {
+      const matchCard = remaining[found]
+      remaining.splice(found, 1)
+      const origIdx = sortedCards.value.indexOf(matchCard)
+      idxs.push(origIdx)
+    }
+  }
+  // 匹配不上时至少选中第一张
+  if (idxs.length === 0 && sortedCards.value.length > 0) {
+    idxs.push(0)
+  }
+  idxs.forEach(i => selectedIndices.add(i))
+})
+
+// 离开页面时清理提示回调
+onUnmounted(() => {
+  ws.setHintCallback(null)
+})
+
+// ===== 触屏支持 =====
+let touchStartIdx = -1
+
+function onTouchStart(e: TouchEvent, cardIdx: number) {
+  if (!isMyTurn.value || ws.room.phase !== 'playing') return
+  touchStartIdx = cardIdx
+  isDragging.value = true
+  dragStartIdx.value = cardIdx
+  dragEndIdx.value = cardIdx
+}
+
+function onTouchMove(e: TouchEvent) {
+  if (!isDragging.value || !cardsContainer.value) return
+  const touch = e.touches[0]
+  const rect = cardsContainer.value.getBoundingClientRect()
+  const x = touch.clientX - rect.left
+  const total = sortedCards.value.length
+  const isMobile = window.innerWidth <= 600
+  const minOverlap = isMobile ? 20 : 36
+  const overlap = Math.min(58, Math.max(minOverlap, 600 / Math.max(total, 1)))
+  const offset = isMobile ? 16 : 60
+  let hoverIdx = Math.round((x - offset - overlap / 2) / overlap)
+  hoverIdx = Math.max(0, Math.min(total - 1, hoverIdx))
+  if (hoverIdx === dragEndIdx.value) return
+  dragEndIdx.value = hoverIdx
+  const start = Math.min(dragStartIdx.value, hoverIdx)
+  const end = Math.max(dragStartIdx.value, hoverIdx)
+  selectedIndices.clear()
+  for (let j = start; j <= end; j++) selectedIndices.add(j)
+}
+
+function onTouchEnd() {
+  if (!isDragging.value) return
+  isDragging.value = false
+  if (dragStartIdx.value === dragEndIdx.value && touchStartIdx === dragStartIdx.value) {
+    // 单击由 onCardClick 处理
+  }
+  touchStartIdx = -1
+}
+
 // ===== 拖拽多选 =====
 const cardsContainer = ref<HTMLDivElement | null>(null)
 const isDragging = ref(false)
@@ -454,13 +551,27 @@ const dragEndIdx = ref(-1)
 
 function getCardStyle(i: number) {
   const total = sortedCards.value.length
-  const overlap = Math.min(58, Math.max(36, 600 / Math.max(total, 1)))
-  const offset = 60
+  const isMobile = window.innerWidth <= 600
+  const minOverlap = isMobile ? 20 : 36
+  const overlap = Math.min(58, Math.max(minOverlap, 600 / Math.max(total, 1)))
+  const offset = isMobile ? 16 : 60
   return {
     left: (i * overlap + offset) + 'px',
     zIndex: i,
   }
 }
+
+/** 手牌容器宽度，确保所有牌撑开后可滚动 */
+const cardsContainerStyle = computed(() => {
+  const total = sortedCards.value.length
+  if (total === 0) return {}
+  const isMobile = window.innerWidth <= 600
+  const minOverlap = isMobile ? 20 : 36
+  const overlap = Math.min(58, Math.max(minOverlap, 600 / Math.max(total, 1)))
+  const offset = isMobile ? 16 : 60
+  const width = total * overlap + offset * 2
+  return { width: width + 'px', minWidth: width + 'px' }
+})
 
 /** 单击：切换单张牌的选中状态（连续点选多张） */
 function onCardClick(i: number) {
@@ -795,6 +906,8 @@ function onCardsMouseLeave() {
 }
 .bc-card {
   transition: all 0.5s ease;
+  width: 68px;
+  height: 98px;
 }
 .bc-card-back {
   width: 68px;
@@ -807,10 +920,14 @@ function onCardsMouseLeave() {
 .bc-card-face {
   width: 68px;
   height: 98px;
+  overflow: hidden;
+  position: relative;
 }
 .bc-card-face :deep(.card-face) {
-  width: 68px;
-  height: 98px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.68);
 }
 
 /* === 玩家位置 === */
@@ -872,32 +989,55 @@ function onCardsMouseLeave() {
 }
 .spot-info {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: rgba(0,0,0,0.3);
+  padding: 3px 10px 4px;
+  border-radius: 10px;
+  min-width: 56px;
+}
+.spot-name-row {
+  display: flex;
   align-items: center;
   gap: 4px;
-  background: rgba(0,0,0,0.3);
-  padding: 2px 10px;
-  border-radius: 10px;
-  font-size: 12px;
-  white-space: nowrap;
+  max-width: 80px;
 }
 .spot-name {
-  max-width: 60px;
+  max-width: 72px;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: bold;
+  color: rgba(255,255,255,0.9);
+}
+.spot-tags {
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 .ai-tag {
-  font-size: 9px;
-  padding: 1px 4px;
-  border-radius: 3px;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
   background: linear-gradient(135deg, #667eea, #764ba2);
   color: white;
+  font-weight: 600;
 }
 .landlord-tag {
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 3px;
+  font-size: 14px;
+  padding: 1px 8px;
+  border-radius: 4px;
   background: #ffd700;
   color: #3d2000;
+  font-weight: bold;
+}
+.farmer-tag {
+  font-size: 14px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
   font-weight: bold;
 }
 .spot-count {
@@ -1165,9 +1305,9 @@ function onCardsMouseLeave() {
   font-weight: bold;
 }
 .landlord-badge, .farmer-badge {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 4px;
+  font-size: 20px;
+  padding: 2px 12px;
+  border-radius: 8px;
   font-weight: bold;
 }
 .landlord-badge {
@@ -1225,6 +1365,14 @@ function onCardsMouseLeave() {
 .replay-btn:hover {
   transform: translateY(-1px);
 }
+.hint-act {
+  background: rgba(100,200,255,0.15);
+  color: #64c8ff;
+  border: 1px solid rgba(100,200,255,0.2);
+}
+.hint-act:hover {
+  background: rgba(100,200,255,0.25);
+}
 
 /* 手牌 */
 .my-cards-container {
@@ -1266,5 +1414,98 @@ function onCardsMouseLeave() {
 }
 .card-slot.disabled:hover {
   transform: none;
+}
+
+/* ===== 手机端适配 ===== */
+@media (max-width: 600px) {
+  .game-room { font-size: 12px; }
+
+  /* 玩家头像缩小 */
+  .spot-avatar {
+    width: 40px; height: 40px; font-size: 16px;
+  }
+  .crown { font-size: 12px; top: -10px; }
+  .spot-info { padding: 2px 6px 3px; min-width: auto; }
+  .spot-name { font-size: 11px; max-width: 50px; }
+  .spot-tags { gap: 2px; }
+  .landlord-tag, .farmer-tag { font-size: 11px; padding: 0 5px; }
+  .ai-tag { font-size: 9px; padding: 0 4px; }
+  .spot-count { font-size: 11px; }
+
+  /* 座位位置调整 */
+  .top-spot { top: 48px; right: 60px; }
+  .right-spot { right: 6px; }
+
+  /* 底牌缩小 */
+  .bottom-cards-area { top: 48px; gap: 5px; }
+  .bottom-label { font-size: 10px; }
+  .bc-card { width: 48px; height: 68px; }
+  .bc-card-back { width: 48px; height: 68px; }
+  .bc-card-face { width: 48px; height: 68px; }
+  .bc-card-face :deep(.card-face) {
+    transform: translate(-50%, -50%) scale(0.48);
+  }
+  .bottom-cards { gap: 4px; }
+
+  /* 顶部栏 */
+  .top-bar { height: 36px; padding: 0 10px; }
+  .room-badge { font-size: 11px; }
+  .btn-quit { font-size: 10px; padding: 3px 8px; }
+
+  /* 我的手牌区 */
+  .my-area { padding: 8px 10px 12px; }
+  .my-avatar { width: 38px; height: 38px; font-size: 15px; }
+  .my-bar { gap: 6px; margin-bottom: 4px; }
+  .my-name { font-size: 12px; }
+  .landlord-badge, .farmer-badge { font-size: 13px; padding: 1px 8px; }
+  .my-count { font-size: 11px; }
+  .my-actions { gap: 5px; }
+
+  /* 操作按钮 */
+  .act-btn {
+    padding: 8px 12px; font-size: 12px; min-height: 36px;
+    border-radius: 8px;
+  }
+  .hint-act { padding: 8px 10px; }
+
+  /* 手牌容器 */
+  .my-cards { height: 90px; }
+  .my-cards-container { padding: 0; }
+  .card-slot.selected { transform: translateY(-14px); }
+  /* 手机端点击选牌不 hover 抬起 */
+  .card-slot:hover { transform: none; z-index: auto !important; }
+  .card-slot.selected:hover { transform: translateY(-14px); }
+
+  /* 手牌区 card 缩放 50% */
+  .card-slot :deep(.card-face) {
+    transform-origin: bottom center;
+    transform: scale(0.5);
+  }
+  .card-slot.selected :deep(.card-face) {
+    transform-origin: bottom center;
+    transform: scale(0.5);
+  }
+
+  /* 中央区 */
+  .center-play-area { min-width: 160px; min-height: 80px; }
+  .call-title { font-size: 16px; }
+  .call-btn { padding: 8px 12px; font-size: 12px; min-width: 44px; }
+  .call-waiting { font-size: 13px; }
+  .my-turn-prompt { font-size: 12px; padding: 3px 12px; }
+
+  /* 出牌区 */
+  .played-label { font-size: 9px; }
+
+  /* 结果卡 */
+  .result-card { padding: 24px 28px; }
+  .result-icon { font-size: 40px; }
+  .result-title { font-size: 22px; }
+  .result-detail { font-size: 11px; gap: 10px; }
+  .btn-replay { padding: 10px 28px; font-size: 14px; }
+
+  /* 等待房间 */
+  .waiting-card { width: 90%; max-width: 320px; padding: 24px 16px; }
+  .room-tag { font-size: 14px; }
+  .btn-start { padding: 10px 30px; font-size: 14px; }
 }
 </style>

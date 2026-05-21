@@ -29,8 +29,15 @@ export function useWebSocket() {
   const lastCallScore = ref<{ playerId: string; score: number } | null>(null)
   const lastPassPlayerId = ref<string | null>(null)
   const playerCardCounts = reactive<Record<string, number>>({})
+  const hintCards = ref<Card[]>([])
+  // 提示出牌回调（替代 watch，避免响应式时序问题）
+  let hintCallback: ((cards: Card[]) => void) | null = null
 
   function connect() {
+    // 如果已有连接，先关掉
+    if (ws.value) {
+      try { ws.value.close() } catch {}
+    }
     const socket = new WebSocket(WS_URL)
 
     socket.onopen = () => {
@@ -39,6 +46,12 @@ export function useWebSocket() {
 
     socket.onclose = () => {
       connected.value = false
+      // 自动重连
+      setTimeout(() => connect(), 3000)
+    }
+
+    socket.onerror = () => {
+      // onclose 会随后触发，自动重连
     }
 
     socket.onmessage = (event) => {
@@ -69,6 +82,11 @@ export function useWebSocket() {
 
       case 'room_state':
         room.state = payload
+        // 同步 landlordId —— 后加入房间的人收不到 landlord_set 事件
+        if (payload?.players) {
+          const landlord = payload.players.find((p: any) => p.isLandlord)
+          if (landlord) landlordId.value = landlord.id
+        }
         break
 
       case 'deal_cards':
@@ -78,6 +96,10 @@ export function useWebSocket() {
       case 'game_start':
         room.phase = 'calling'
         currentCallIndex.value = payload.currentCallIndex
+        // 初始化各玩家手牌数
+        if (payload.cardCounts) {
+          Object.assign(playerCardCounts, payload.cardCounts)
+        }
         break
 
       case 'player_called':
@@ -90,8 +112,20 @@ export function useWebSocket() {
 
       case 'landlord_cards':
         bottomCards.value = payload.cards
-        // 地主获得底牌，加入手牌
-        myCards.value = [...myCards.value, ...payload.cards]
+        // 只有地主本人获得底牌加入手牌
+        if (payload.landlordId && payload.landlordId === playerId.value) {
+          myCards.value = [...myCards.value, ...payload.cards]
+        }
+        // 更新地主牌数（20张）
+        if (payload.landlordCardCount) {
+          playerCardCounts[payload.landlordId] = payload.landlordCardCount
+        }
+        // 更新农民牌数
+        if (payload.farmerCardCount && payload.farmerIds) {
+          for (let i = 0; i < payload.farmerIds.length; i++) {
+            playerCardCounts[payload.farmerIds[i]] = payload.farmerCardCount[i]
+          }
+        }
         break
 
       case 'landlord_set':
@@ -129,6 +163,11 @@ export function useWebSocket() {
         room.phase = 'ended'
         break
 
+      case 'hint_cards':
+        hintCards.value = payload.cards ?? []
+        if (hintCallback) hintCallback(payload.cards ?? [])
+        break
+
       case 'error':
         error.value = payload.message
         break
@@ -162,6 +201,15 @@ export function useWebSocket() {
     winner.value = null
   }
 
+  function getHint() {
+    hintCards.value = []
+    send('get_hint')
+  }
+
+  function setHintCallback(cb: ((cards: Card[]) => void) | null) {
+    hintCallback = cb
+  }
+
   function addAi() {
     send('add_ai')
   }
@@ -192,12 +240,15 @@ export function useWebSocket() {
     lastCallScore,
     lastPassPlayerId,
     playerCardCounts,
+    hintCards,
+    setHintCallback,
     connect,
     createRoom,
     joinRoom,
     callScore,
     playCards,
     leaveRoom,
+    getHint,
     addAi,
     startSinglePlayer,
     requestStartGame,
