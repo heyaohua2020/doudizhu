@@ -38,18 +38,52 @@ export function aiCallScore(hand: Card[]): 0 | 1 | 2 | 3 {
 
 // ===== 出牌 =====
 
-export function aiPlayCards(hand: Card[], lastPlay: { playerId: string; cards: Card[] } | null): Card[] {
-  // 需要管上家的牌
-  if (lastPlay) {
-    const candidates = findBeatCandidates(hand, lastPlay.cards)
+export interface AiContext {
+  /** 当前 AI 玩家的 ID */
+  playerId: string
+  /** 地主 ID */
+  landlordId: string
+  /** 所有玩家剩余牌数（含自己），用于判断队友是否快赢了 */
+  cardCounts?: Record<string, number>
+}
+
+export function aiPlayCards(
+  hand: Card[],
+  lastPlay: { playerId: string; cards: Card[] } | null,
+  context?: AiContext,
+): Card[] {
+  // === 需要管上家的牌 ===
+  if (lastPlay && lastPlay.playerId !== context?.playerId) {
+    // 无 context 时回退旧行为（向后兼容测试 / 外部调用）
+    if (!context) {
+      const candidates = findBeatCandidates(hand, lastPlay.cards, false)
+      if (candidates.length > 0) return candidates[0]
+      return []
+    }
+
+    const isLandlord = context.playerId === context.landlordId
+    const lastIsLandlord = lastPlay.playerId === context.landlordId
+
+    // 🔑 农民不打队友：我是农民，上家也是农民 → 让队友走
+    if (!isLandlord && !lastIsLandlord) {
+      // 特例：手牌很少（≤2 张）时可以抢出，防止队友被地主截胡
+      if (hand.length <= 2) {
+        const candidates = findBeatCandidates(hand, lastPlay.cards, /* preferSmallest */ true)
+        if (candidates.length > 0) return candidates[0]
+      }
+      return [] // 过牌，让队友走
+    }
+
+    // 地主打所有人 / 农民打地主 → 选最小能管的牌，保留大牌
+    const candidates = findBeatCandidates(hand, lastPlay.cards, /* preferSmallest */ true)
     if (candidates.length > 0) {
       return candidates[0]
     }
-    return []
+    return [] // 管不上，过牌
   }
 
-  // 自由出牌（自己先手）
-  return findLeadCards(hand)
+  // === 自由出牌（自己先手） ===
+  return findLeadCards(hand, context)
 }
 
 // ===== 工具函数 =====
@@ -132,7 +166,7 @@ function findAirplane(byRank: Map<number, Card[]>): Card[][] {
 
 // ===== 自由出牌策略 =====
 
-function findLeadCards(hand: Card[]): Card[] {
+function findLeadCards(hand: Card[], context?: AiContext): Card[] {
   if (hand.length === 0) return []
   if (hand.length === 1) return hand
 
@@ -152,18 +186,30 @@ function findLeadCards(hand: Card[]): Card[] {
     else singles.push(...cards)
   }
 
-  // 如果只剩一手可出的完整牌型 → 全出
+  // 只剩一手可出的完整牌型 → 全出
   if (hand.length <= 4) {
     const p = identifyPattern(hand)
     if (p) return [...hand]
+  }
+
+  const isFarmer = context ? context.playerId !== context.landlordId : false
+
+  // 🚜 农民先手策略：优先出小单张、小对子，帮队友探路
+  if (isFarmer) {
+    // 优先出最小的单张（帮队友了解牌型）
+    if (singles.length > 0) {
+      return [singles[0]]
+    }
+    // 其次出小对子
+    if (pairs.length > 0) {
+      return pairs[0]
+    }
   }
 
   // 有飞机 → 出最小的飞机
   const airplanes = findAirplane(byRank)
   if (airplanes.length > 0) {
     const ap = airplanes[0]
-    // 有单牌就带单
-    const availableSingles = [...singles]
     const apRanks = new Set(ap.map(c => RANK_VALUES[c.rank]))
     const otherCards = allCards.filter(c => !apRanks.has(RANK_VALUES[c.rank]))
     const otherSingles = otherCards.filter(c => (byRank.get(RANK_VALUES[c.rank])?.length ?? 0) === 1)
@@ -173,7 +219,7 @@ function findLeadCards(hand: Card[]): Card[] {
     return ap
   }
 
-  // 有顺子 → 出最小的顺子（优先清理长连牌）
+  // 有顺子 → 出最小的顺子
   const straights = findStraight(byRank)
   if (straights.length > 0) {
     return straights[0]
@@ -201,7 +247,7 @@ function findLeadCards(hand: Card[]): Card[] {
     return pairs[0]
   }
 
-  // 只剩单牌或小牌 → 出最小的单张
+  // 只剩单牌 → 出最小的单张
   if (singles.length > 0) {
     return [singles[0]]
   }
@@ -217,7 +263,15 @@ function findLeadCards(hand: Card[]): Card[] {
 
 // ===== 管牌策略 =====
 
-function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
+/**
+ * 找到所有能管住 lastCards 的牌组合。
+ * @param preferSmallest 为 true 时，返回最小的管牌组合（保留大牌）
+ */
+function findBeatCandidates(
+  hand: Card[],
+  lastCards: Card[],
+  preferSmallest = false,
+): Card[][] {
   const pattern = identifyPattern(lastCards)
   if (!pattern) return []
 
@@ -232,7 +286,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
       for (const c of sorted) {
         if (RANK_VALUES[c.rank] > pattern.rank) {
           candidates.push([c])
-          break
+          if (preferSmallest) break // 只取最小的
         }
       }
       break
@@ -242,7 +296,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
       for (const [rank, cards] of byRank) {
         if (cards.length >= 2 && rank > pattern.rank) {
           candidates.push(cards.slice(0, 2))
-          break
+          if (preferSmallest) break
         }
       }
       break
@@ -263,7 +317,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
             const pairKicker = [...byRank.entries()].find(([r, cs]) => r !== rank && cs.length >= 2)
             if (pairKicker) candidates.push([...triple, ...pairKicker[1].slice(0, 2)])
           }
-          if (candidates.length > 0) break
+          if (preferSmallest && candidates.length > 0) break
         }
       }
       break
@@ -271,11 +325,9 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
 
     case 'straight': {
       const len = pattern.length
-      // 找连续且点数更大的顺子
       const availableRanks = [...byRank.keys()].filter(r => r >= 3 && r <= 14).sort((a, b) => a - b)
       for (let i = 0; i + len <= availableRanks.length; i++) {
         const seq = availableRanks.slice(i, i + len)
-        // 检查是否连续
         let isConsecutive = true
         for (let j = 1; j < seq.length; j++) {
           if (seq[j] !== seq[j - 1] + 1) { isConsecutive = false; break }
@@ -284,14 +336,14 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
         if (seq[seq.length - 1] > pattern.rank) {
           const straightCards = seq.map(r => byRank.get(r)![0])
           candidates.push(straightCards)
-          break
+          if (preferSmallest) break
         }
       }
       break
     }
 
     case 'double_straight': {
-      const pairCount = pattern.length // 多少对
+      const pairCount = pattern.length
       const available = [...byRank.entries()]
         .filter(([, cards]) => cards.length >= 2 && RANK_VALUES[cards[0].rank] >= 3 && RANK_VALUES[cards[0].rank] <= 14)
         .sort((a, b) => a[0] - b[0])
@@ -304,7 +356,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
         if (!isConsecutive) continue
         if (seq[seq.length - 1][0] > pattern.rank) {
           candidates.push(seq.flatMap(([, cards]) => cards.slice(0, 2)))
-          break
+          if (preferSmallest) break
         }
       }
       break
@@ -313,7 +365,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
     case 'airplane':
     case 'airplane_single':
     case 'airplane_pair': {
-      const tripleCount = pattern.length // 多少组三张
+      const tripleCount = pattern.length
       const available = [...byRank.entries()]
         .filter(([, cards]) => cards.length >= 3 && RANK_VALUES[cards[0].rank] >= 3 && RANK_VALUES[cards[0].rank] <= 14)
         .sort((a, b) => a[0] - b[0])
@@ -335,7 +387,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
             if (kickers.length >= tripleCount) {
               candidates.push([...triples, ...kickers.slice(0, tripleCount)])
             } else {
-              candidates.push(triples) // 不带也出
+              candidates.push(triples)
             }
           } else if (pattern.type === 'airplane_pair') {
             const usedRanks = new Set(seq.map(([r]) => r))
@@ -349,7 +401,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
               candidates.push(triples)
             }
           }
-          if (candidates.length > 0) break
+          if (preferSmallest && candidates.length > 0) break
         }
       }
       break
@@ -369,7 +421,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
               .flatMap(([, cs]) => cs.slice(0, 2))
             if (pairKickers.length >= 4) candidates.push([...cards, ...pairKickers])
           }
-          break
+          if (preferSmallest) break
         }
       }
       break
@@ -377,6 +429,7 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
   }
 
   // 炸弹可以管任何牌型（除了火箭）
+  // 打地主时优先用普通牌型，炸弹作为最后手段
   if (pattern.type !== 'rocket' && pattern.type !== 'bomb') {
     const bombCandidates: Card[][] = []
     for (const [rank, cards] of byRank) {
@@ -385,8 +438,11 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
       }
     }
     if (bombCandidates.length > 0) {
-      // 炸弹排在普通管牌后面作为备选
-      candidates.push(...bombCandidates)
+      // 普通管牌已存在 → 不用炸弹（打地主时优先保留炸弹）
+      if (candidates.length === 0) {
+        candidates.push(...bombCandidates)
+      }
+      // 如果 preferSmallest，炸弹作为最后选项保留
     }
   }
 
@@ -404,7 +460,25 @@ function findBeatCandidates(hand: Card[], lastCards: Card[]): Card[][] {
   const smallJoker = hand.find(c => c.jokerType === 'small')
   const bigJoker = hand.find(c => c.jokerType === 'big')
   if (smallJoker && bigJoker && pattern.type !== 'rocket') {
-    candidates.push([smallJoker, bigJoker])
+    // 火箭也作为最后手段
+    if (candidates.length === 0) {
+      candidates.push([smallJoker, bigJoker])
+    }
+  }
+
+  // preferSmallest: 按管牌点数升序排列，取最小的
+  if (preferSmallest && candidates.length > 1) {
+    candidates.sort((a, b) => {
+      const pa = identifyPattern(a)
+      const pb = identifyPattern(b)
+      if (!pa || !pb) return 0
+      // 炸弹/火箭排后面
+      const aIsBomb = pa.type === 'bomb' || pa.type === 'rocket'
+      const bIsBomb = pb.type === 'bomb' || pb.type === 'rocket'
+      if (aIsBomb && !bIsBomb) return 1
+      if (!aIsBomb && bIsBomb) return -1
+      return pa.rank - pb.rank
+    })
   }
 
   return candidates

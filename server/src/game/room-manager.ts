@@ -110,7 +110,10 @@ export class Room {
         setTimeout(() => {
           if (player.disconnectedAt && this.game && this.game.phase === 'playing' &&
               this.players[this.game.currentPlayerIndex]?.id === playerId) {
-            const cards = aiPlayCards(player.cards, this.game.lastPlay)
+            const cards = aiPlayCards(player.cards, this.game.lastPlay, {
+              playerId: player.id,
+              landlordId: this.game.landlordId!,
+            })
             this.handlePlayCards(player.id, cards)
           }
         }, 8000)
@@ -228,6 +231,13 @@ export class Room {
     return true
   }
 
+  /** 游戏结束后重新开始（保留房间和玩家，重新发牌） */
+  restartGame(): boolean {
+    if (!this.game || this.game.phase !== 'ended') return false
+    this.clearCallTimer()
+    return this.startGame()
+  }
+
   private startCallTimer() {
     this.clearCallTimer()
     this.callTimer = setTimeout(() => {
@@ -267,7 +277,10 @@ export class Room {
     } else if (this.game.phase === 'playing') {
       const player = this.players[this.game.currentPlayerIndex]
       if (!player?.aiControlled) return
-      const cards = aiPlayCards(player.cards, this.game.lastPlay)
+      const cards = aiPlayCards(player.cards, this.game.lastPlay, {
+        playerId: player.id,
+        landlordId: this.game.landlordId!,
+      })
       this.handlePlayCards(player.id, cards)
     }
   }

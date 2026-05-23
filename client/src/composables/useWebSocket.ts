@@ -130,6 +130,15 @@ export function useWebSocket() {
       case 'game_start':
         room.phase = 'calling'
         currentCallIndex.value = payload.currentCallIndex
+        // 重置所有上一局残留的状态
+        lastPlay.value = null
+        lastCallScore.value = null
+        lastPassPlayerId.value = null
+        winner.value = null
+        landlordId.value = null
+        bombsCount.value = 0
+        bottomCards.value = []
+        hintCards.value = []
         // 初始化各玩家手牌数
         if (payload.cardCounts) {
           Object.assign(playerCardCounts, payload.cardCounts)
@@ -287,6 +296,10 @@ export function useWebSocket() {
     send('chat_message', { text })
   }
 
+  function requestRestartGame() {
+    send('restart_game')
+  }
+
   return {
     ws,
     connected,
@@ -319,6 +332,7 @@ export function useWebSocket() {
     addAi,
     startSinglePlayer,
     requestStartGame,
+    requestRestartGame,
     sendChat,
   }
 }

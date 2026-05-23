@@ -268,6 +268,15 @@ wss.on('connection', (ws: WebSocket) => {
         })
         break
       }
+
+      case 'restart_game': {
+        if (!currentRoom || !playerId) return
+        const ok = currentRoom.restartGame()
+        if (!ok) {
+          ws.send(JSON.stringify({ type: 'error', payload: { message: '无法重新开始' } }))
+        }
+        break
+      }
     }
     } catch (e) {
       console.error('ws handler error:', e)

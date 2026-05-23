@@ -192,7 +192,10 @@
                 <span class="result-bomb">💣 炸弹 × {{ ws.bombsCount.value }}</span>
                 <span class="result-role">{{ isLandlord(ws.winner.value) ? '地主' : '农民' }} 胜利</span>
               </div>
-              <button class="btn-replay" @click="ws.leaveRoom()">🔄 再来一局</button>
+              <div class="result-actions">
+                <button class="btn-replay" @click="ws.requestRestartGame()">🔄 再来一局</button>
+                <button class="btn-leave-result" @click="ws.leaveRoom()">🚪 退出房间</button>
+              </div>
             </div>
           </div>
         </div>
@@ -223,9 +226,6 @@
                 🚀 出牌
               </button>
             </template>
-            <button v-if="ws.room.phase === 'ended'" class="act-btn replay-btn" @click="ws.leaveRoom()">
-              🔄 再来一局
-            </button>
           </div>
         </div>
 
@@ -1465,10 +1465,10 @@ function onCardsMouseLeave() {
   50% { opacity: 1; }
 }
 
-/* 游戏结束 */
+/* 游戏结束 — fixed 全屏遮罩，干净无黑框 */
 .game-result {
-  position: absolute;
-  inset: -200px -200px -200px -200px;
+  position: fixed;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1477,9 +1477,9 @@ function onCardsMouseLeave() {
 .result-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0,0,0,0.6);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 .result-card {
   position: relative;
@@ -1520,6 +1520,11 @@ function onCardsMouseLeave() {
   color: rgba(255,255,255,0.6);
   font-size: 13px;
 }
+.result-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
 .btn-replay {
   padding: 12px 36px;
   border: none;
@@ -1535,6 +1540,20 @@ function onCardsMouseLeave() {
 .btn-replay:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 24px rgba(247,151,30,0.4);
+}
+.btn-leave-result {
+  padding: 12px 24px;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.6);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.btn-leave-result:hover {
+  background: rgba(255,255,255,0.12);
+  color: white;
 }
 
 /* ===== 我的手牌区 ===== */
@@ -1556,7 +1575,7 @@ function onCardsMouseLeave() {
   gap: 10px;
   margin-bottom: 8px;
   padding: 0 8px;
-  flex-wrap: wrap; /* 手机端按钮可换行 */
+  position: relative; /* 让 my-actions 可绝对居中 */
 }
 .my-avatar {
   width: 52px;
@@ -1572,6 +1591,7 @@ function onCardsMouseLeave() {
   box-shadow: 0 2px 10px rgba(0,0,0,0.3);
   border: 2px solid rgba(255,255,255,0.2);
   flex-shrink: 0;
+  z-index: 1;
 }
 .my-avatar.landlord {
   background: linear-gradient(135deg, #ffd700, #f5a623);
@@ -1615,9 +1635,11 @@ function onCardsMouseLeave() {
 }
 
 .my-actions {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   gap: 8px;
-  flex-shrink: 0;
 }
 .act-btn {
   padding: 8px 18px;
@@ -1649,13 +1671,6 @@ function onCardsMouseLeave() {
 .play-act:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 16px rgba(247,151,30,0.4);
-}
-.replay-btn {
-  background: linear-gradient(135deg, #f7971e, #ffd200);
-  color: #3d2000;
-}
-.replay-btn:hover {
-  transform: translateY(-1px);
 }
 .hint-act {
   background: rgba(100,200,255,0.15);
@@ -1775,11 +1790,12 @@ function onCardsMouseLeave() {
   /* 我的手牌区 */
   .my-area { padding: 8px 10px 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   .my-avatar { width: 38px; height: 38px; font-size: 15px; }
-  .my-bar { gap: 6px; margin-bottom: 4px; }
+  .my-bar { gap: 6px; margin-bottom: 4px; position: static; flex-wrap: wrap; }
   .my-name { font-size: 12px; max-width: 60px; }
   .landlord-badge, .farmer-badge { font-size: 13px; padding: 1px 8px; }
   .my-count { font-size: 11px; }
-  .my-actions { gap: 5px; }
+  /* 手机端恢复 flex 布局，不居中 */
+  .my-actions { position: static; transform: none; left: auto; gap: 5px; flex-shrink: 0; }
 
   /* 操作按钮：紧凑 */
   .act-btn {
@@ -1833,7 +1849,9 @@ function onCardsMouseLeave() {
   .result-icon { font-size: 40px; }
   .result-title { font-size: 20px; }
   .result-detail { font-size: 11px; gap: 8px; flex-wrap: wrap; }
-  .btn-replay { padding: 10px 28px; font-size: 14px; }
+  .result-actions { gap: 8px; flex-wrap: wrap; }
+  .btn-replay { padding: 10px 24px; font-size: 14px; }
+  .btn-leave-result { padding: 10px 18px; font-size: 12px; }
 
   /* 等待房间 */
   .waiting-card {
