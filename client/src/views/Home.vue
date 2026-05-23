@@ -23,10 +23,10 @@
       </div>
 
       <!-- 单人游戏按钮 -->
-      <button class="btn-single" @click="startSingle">
-        <span class="btn-icon">🎮</span>
-        <span class="btn-text">单人开始</span>
-        <span class="btn-desc">自动匹配 AI 对手</span>
+      <button class="btn-single" @click="startSingle" :disabled="!isWsReady">
+        <span class="btn-icon">{{ isWsReady ? '🎮' : '📡' }}</span>
+        <span class="btn-text">{{ isWsReady ? '单人开始' : '连接中...' }}</span>
+        <span class="btn-desc">{{ isWsReady ? '自动匹配 AI 对手' : '请稍候' }}</span>
       </button>
 
       <div class="divider">
@@ -60,7 +60,7 @@
           />
         </div>
 
-        <button class="btn primary" @click="handleSubmit">
+        <button class="btn primary" @click="handleSubmit" :disabled="!isWsReady">
           {{ tab === 'create' ? '创建房间' : '加入房间' }}
         </button>
       </div>
@@ -71,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { inject, ref, onMounted, onUnmounted } from 'vue'
+import { inject, ref, computed, onMounted, onUnmounted } from 'vue'
 import { startBgm, stopBgm, setVolume, setBgmMp3Src, setBgmMode, getBgmMode } from '../composables/useSound'
 
 const ws: ReturnType<typeof import('../composables/useWebSocket').useWebSocket> = inject('ws')!
@@ -84,6 +84,8 @@ const tab = ref<'create' | 'join'>('create')
 const nickname = ref('')
 const joinRoomId = ref('')
 const error = ref('')
+
+const isWsReady = computed(() => ws.connected.value)
 
 function onRoomIdInput() {
   joinRoomId.value = joinRoomId.value.toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 6)
@@ -258,6 +260,13 @@ function handleSubmit() {
 .btn-single:active {
   transform: translateY(0);
 }
+.btn-single:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  background: linear-gradient(135deg, #888, #666);
+}
 .btn-icon { font-size: 28px; }
 .btn-text {
   font-size: 18px;
@@ -361,6 +370,12 @@ function handleSubmit() {
 .btn.primary:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(255,215,0,0.25);
+}
+.btn.primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .error {

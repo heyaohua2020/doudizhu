@@ -43,6 +43,8 @@ export function useWebSocket() {
   const disconnected = ref(false)
   // 聊天消息列表
   const chatMessages: Ref<ChatMessage[]> = ref([])
+  // WS 未就绪时的消息队列
+  const pendingMessages: { type: string; payload: Record<string, unknown> }[] = []
 
   function connect() {
     // 如果已有连接，先关掉
@@ -54,6 +56,11 @@ export function useWebSocket() {
     socket.onopen = () => {
       connected.value = true
       disconnected.value = false
+      // 刷新队列中等待的消息
+      while (pendingMessages.length > 0) {
+        const msg = pendingMessages.shift()!
+        socket.send(JSON.stringify(msg))
+      }
       // 断线重连：如果之前在房间内，尝试恢复连接
       if (roomId.value && playerId.value) {
         socket.send(JSON.stringify({
@@ -88,8 +95,12 @@ export function useWebSocket() {
   }
 
   function send(type: string, payload: Record<string, unknown> = {}) {
+    const msg = { type, payload }
     if (ws.value?.readyState === WebSocket.OPEN) {
-      ws.value.send(JSON.stringify({ type, payload }))
+      ws.value.send(JSON.stringify(msg))
+    } else {
+      // WS 未就绪 → 入队，等 onopen 后自动发送
+      pendingMessages.push(msg)
     }
   }
 
@@ -247,6 +258,8 @@ export function useWebSocket() {
     winner.value = null
     disconnected.value = false
     chatMessages.value = []
+    // 清空消息队列，防止残留消息在新房间触发
+    pendingMessages.length = 0
   }
 
   function getHint() {

@@ -1752,12 +1752,14 @@ function onCardsMouseLeave() {
   .ai-tag { font-size: 9px; padding: 0 4px; }
   .spot-count { font-size: 11px; }
 
-  /* 座位位置：底牌和对手错开，避免重叠 */
-  .top-spot { top: 48px; right: 50px; }
+  /* 座位位置：对手统一右对齐靠边，底牌左移平衡视觉 */
+  .top-spot { top: 48px; right: 4px; }
   .right-spot { right: 4px; }
+  /* 让 spot 内部也右对齐 */
+  .top-spot, .right-spot { align-items: flex-end; }
 
-  /* 底牌：使用 sm 尺寸 (44×64)，容器匹配 */
-  .bottom-cards-area { top: 48px; gap: 5px; }
+  /* 底牌：使用 sm 尺寸 (44×64)，容器匹配，左移平衡右对齐的对手 */
+  .bottom-cards-area { top: 48px; gap: 5px; left: 45%; }
   .bottom-label { font-size: 10px; }
   .bc-card { width: 44px; height: 64px; }
   .bc-card-back { width: 44px; height: 64px; border-radius: 4px; }
@@ -1793,11 +1795,20 @@ function onCardsMouseLeave() {
   .card-slot:hover { transform: none; z-index: auto; }
   .card-slot.selected:hover { transform: translateY(-14px); }
 
-  /* 出牌区：xs 卡牌 40×58，使用负 margin 让牌紧凑排列 */
-  .played-cards-row { gap: 0; }
-  .played-card-wrapper + .played-card-wrapper {
-    margin-left: -8px; /* 替代 gap:-4px，让出牌区紧凑但不过度重叠 */
+  /* 出牌区：xs 卡牌 40×58，定宽容器+overflow 实现重叠，flex-wrap 支持换行 */
+  .played-cards-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0;
+    row-gap: 6px; /* 换行后行间距 */
   }
+  .played-card-wrapper {
+    width: 32px;        /* 8张≈256px，超出自动换行 */
+    overflow: visible;  /* 40px 卡牌溢出 8px，形成自然重叠 */
+    flex-shrink: 0;
+  }
+  /* 去掉负 margin，改用 overflow 实现重叠，避免换行时第二行错位 */
 
   /* 中央区 */
   .center-play-area { min-width: 160px; min-height: 80px; }
