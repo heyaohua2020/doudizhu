@@ -45,6 +45,8 @@ export function useWebSocket() {
   const chatMessages: Ref<ChatMessage[]> = ref([])
   // WS 未就绪时的消息队列
   const pendingMessages: { type: string; payload: Record<string, unknown> }[] = []
+  // 重连定时器（防止积累多个）
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   function connect() {
     // 如果已有连接，先关掉
@@ -76,8 +78,9 @@ export function useWebSocket() {
       if (roomId.value) {
         disconnected.value = true
       }
-      // 自动重连
-      setTimeout(() => connect(), 3000)
+      // 自动重连（清除旧定时器，防止积累）
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer)
+      reconnectTimer = setTimeout(() => connect(), 3000)
     }
 
     socket.onerror = () => {
@@ -121,6 +124,10 @@ export function useWebSocket() {
           const landlord = payload.players.find((p: any) => p.isLandlord)
           if (landlord) landlordId.value = landlord.id
         }
+        // 同步底牌（重连时需要）
+        if (payload?.bottomCards) {
+          bottomCards.value = payload.bottomCards
+        }
         break
 
       case 'deal_cards':
@@ -139,7 +146,8 @@ export function useWebSocket() {
         bombsCount.value = 0
         bottomCards.value = []
         hintCards.value = []
-        // 初始化各玩家手牌数
+        // 清空旧玩家牌数残留，然后设置当前对局各玩家牌数
+        Object.keys(playerCardCounts).forEach(k => delete playerCardCounts[k])
         if (payload.cardCounts) {
           Object.assign(playerCardCounts, payload.cardCounts)
         }
@@ -204,6 +212,10 @@ export function useWebSocket() {
 
       case 'next_turn':
         currentPlayerIndex.value = payload.currentPlayerIndex
+        // 自由出牌权（两人 pass 后）→ 清空 lastPlay，隐藏"不出"按钮
+        if (payload.freePlay) {
+          lastPlay.value = null
+        }
         break
 
       case 'game_over':
@@ -257,7 +269,18 @@ export function useWebSocket() {
   }
 
   function leaveRoom() {
-    send('leave_room')
+    // 已断线时直接关闭 WS（阻止自动重连），不入队
+    if (!connected.value || ws.value?.readyState !== WebSocket.OPEN) {
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
+      if (ws.value) {
+        try { ws.value.onclose = null; ws.value.close() } catch {}
+      }
+    } else {
+      send('leave_room')
+    }
     playerId.value = null
     roomId.value = null
     myCards.value = []
@@ -267,7 +290,7 @@ export function useWebSocket() {
     winner.value = null
     disconnected.value = false
     chatMessages.value = []
-    // 清空消息队列，防止残留消息在新房间触发
+    // 清空消息队列
     pendingMessages.length = 0
   }
 

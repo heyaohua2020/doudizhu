@@ -131,9 +131,7 @@ export function identifyPattern(cards: Card[]): PatternResult | null {
       if (remaining.every(([, c]) => c === 2) && remaining.length === 2) {
         return { type: 'four_two_pair', rank: fourRank[0], length: 1 }
       }
-      if (remaining.length === 4 && remaining.every(([, c]) => c === 1)) {
-        return { type: 'four_two_single', rank: fourRank[0], length: 1 }
-      }
+      // 注意：4+1+1+1+1 不是合法斗地主牌型，不返回
     }
   }
 

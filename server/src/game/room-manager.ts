@@ -19,6 +19,7 @@ export interface ClientSession {
 }
 
 const CALL_TIMEOUT_MS = 15_000
+const PLAY_TIMEOUT_MS = 30_000
 
 export class Room {
   id: string
@@ -27,6 +28,9 @@ export class Room {
   sessions: Map<string, ClientSession> = new Map()
   ownerIndex = 0
   private callTimer: ReturnType<typeof setTimeout> | null = null
+  private playTimer: ReturnType<typeof setTimeout> | null = null
+  /** 断线代打定时器：playerId → timerId，重连时取消 */
+  private disconnectTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
 
   constructor() {
     this.id = generateRoomId()
@@ -106,8 +110,9 @@ export class Room {
         // 叫分已有超时处理
       } else if (this.game.phase === 'playing' &&
                  this.players[this.game.currentPlayerIndex]?.id === playerId) {
-        // 出牌阶段：8秒后 AI 代打出牌
-        setTimeout(() => {
+        // 出牌阶段：8秒后 AI 代打出牌（保存 timerId 以便重连时取消）
+        const timerId = setTimeout(() => {
+          this.disconnectTimers.delete(playerId)
           if (player.disconnectedAt && this.game && this.game.phase === 'playing' &&
               this.players[this.game.currentPlayerIndex]?.id === playerId) {
             const cards = aiPlayCards(player.cards, this.game.lastPlay, {
@@ -117,18 +122,25 @@ export class Room {
             this.handlePlayCards(player.id, cards)
           }
         }, 8000)
+        this.disconnectTimers.set(playerId, timerId)
       }
     }
   }
 
   /**
-   * 重连玩家：重新绑定 session，清除断线标记
+   * 重连玩家：重新绑定 session，清除断线标记，取消 AI 代打定时器
    */
   reconnectPlayer(playerId: string, session: ClientSession): boolean {
     const player = this.players.find(p => p.id === playerId)
     if (!player) return false
     player.disconnectedAt = null
     this.sessions.set(playerId, session)
+    // 取消该玩家的 AI 代打定时器
+    const timerId = this.disconnectTimers.get(playerId)
+    if (timerId !== undefined) {
+      clearTimeout(timerId)
+      this.disconnectTimers.delete(playerId)
+    }
     return true
   }
 
@@ -210,6 +222,7 @@ export class Room {
       currentCallIndex: 0,
       bombsPlayed: 0,
       landlordId: null,
+      winnerId: null,
     }
 
     // 通知各玩家手牌
@@ -256,14 +269,39 @@ export class Room {
     }
   }
 
+  private clearPlayTimer() {
+    if (this.playTimer !== null) {
+      clearTimeout(this.playTimer)
+      this.playTimer = null
+    }
+  }
+
   private scheduleNextAction() {
     if (!this.game) return
     const idx = this.game.phase === 'calling' ? this.game.currentCallIndex : this.game.currentPlayerIndex
     const player = this.players[idx]
     if (player?.aiControlled) {
       setTimeout(() => this.runAiAction(), 800 + Math.random() * 600)
-    } else {
+    } else if (this.game.phase === 'calling') {
       this.startCallTimer()
+    } else if (this.game.phase === 'playing') {
+      // 出牌阶段 30 秒超时 → AI 代出/自动过牌
+      this.clearPlayTimer()
+      this.playTimer = setTimeout(() => {
+        if (!this.game || this.game.phase !== 'playing') return
+        const p = this.players[this.game.currentPlayerIndex]
+        if (!p || p.aiControlled || !this.game.lastPlay || this.game.lastPlay.playerId === p.id) {
+          // 先手或有自由出牌权 → 时间到出最小的牌
+          if (this.game.lastPlay?.playerId === p.id || !this.game.lastPlay) {
+            // 不应该发生（先手真人不应有超时），但安全兜底
+            this.playTimer = null
+            return
+          }
+        }
+        // 超时自动过牌
+        this.handlePlayCards(p.id, [])
+        this.playTimer = null
+      }, PLAY_TIMEOUT_MS)
     }
   }
 
@@ -318,7 +356,7 @@ export class Room {
       // 全都不叫 → 重新发牌
       if (maxScore === 0) {
         this.clearCallTimer()
-        this.broadcast({ type: 'error', payload: { message: '🔄 全都不叫，重新发牌' } })
+        this.broadcast({ type: 'game_restart', payload: { message: '🔄 全都不叫，重新发牌' } })
         // 保留玩家，重新开始游戏
         this.players.forEach(p => { p.cards = []; p.isLandlord = false })
         this.game = null
@@ -389,8 +427,10 @@ export class Room {
       if (this.game.passCount >= 2) {
         this.game.lastPlay = null
         this.game.passCount = 0
+        this.advanceTurn(true)
+      } else {
+        this.advanceTurn()
       }
-      this.advanceTurn()
       return
     }
 
@@ -441,8 +481,12 @@ export class Room {
       payload: { playerId, cards, remaining: player.cards.length },
     })
 
+    // 出牌后清除超时定时器
+    this.clearPlayTimer()
+
     // 检查是否出完
     if (player.cards.length === 0) {
+      this.game.winnerId = playerId
       this.game.phase = 'ended'
       this.broadcast({
         type: 'game_over',
@@ -454,12 +498,12 @@ export class Room {
     this.advanceTurn()
   }
 
-  private advanceTurn() {
+  private advanceTurn(freePlay = false) {
     if (!this.game) return
     this.game.currentPlayerIndex = (this.game.currentPlayerIndex + 1) % 3
     this.broadcast({
       type: 'next_turn',
-      payload: { currentPlayerIndex: this.game.currentPlayerIndex },
+      payload: { currentPlayerIndex: this.game.currentPlayerIndex, freePlay },
     })
     this.scheduleNextAction()
   }
@@ -534,7 +578,7 @@ export class Room {
 
     // 游戏结束
     if (this.game.phase === 'ended') {
-      msgs.push({ type: 'game_over', payload: { winnerId: this.game.landlordId ?? '', bombsCount: this.game.bombsPlayed } })
+      msgs.push({ type: 'game_over', payload: { winnerId: this.game.winnerId ?? '', bombsCount: this.game.bombsPlayed } })
     }
 
     return msgs
@@ -542,6 +586,7 @@ export class Room {
 
   destroy() {
     this.clearCallTimer()
+    this.clearPlayTimer()
     this.game = null
     this.players = []
     this.sessions.clear()

@@ -92,7 +92,7 @@
         </div>
 
         <!-- 上家（我 +1） -->
-        <div class="player-spot top-spot" :class="{ active: isPlayerTurn(spotIndices.top) }">
+        <div class="player-spot top-spot" :class="{ active: isPlayerTurn(spotIndices.top) }" :style="spotOffsetStyle">
           <div class="spot-avatar" :class="{ landlord: isLandlord(players[spotIndices.top]?.id) }">
             {{ players[spotIndices.top]?.aiControlled ? '🤖' : (players[spotIndices.top]?.nickname?.charAt(0) ?? '?') }}
             <div v-if="isLandlord(players[spotIndices.top]?.id)" class="crown">👑</div>
@@ -115,7 +115,7 @@
         </div>
 
         <!-- 下家（我 +2） -->
-        <div class="player-spot right-spot" :class="{ active: isPlayerTurn(spotIndices.right) }">
+        <div class="player-spot right-spot" :class="{ active: isPlayerTurn(spotIndices.right) }" :style="spotOffsetStyle">
           <div class="spot-avatar" :class="{ landlord: isLandlord(players[spotIndices.right]?.id) }">
             {{ players[spotIndices.right]?.aiControlled ? '🤖' : (players[spotIndices.right]?.nickname?.charAt(0) ?? '?') }}
             <div v-if="isLandlord(players[spotIndices.right]?.id)" class="crown">👑</div>
@@ -222,7 +222,7 @@
               <button class="act-btn pass-act" @click="ws.playCards([])" :disabled="!canPass">
                 🙅 不出
               </button>
-              <button class="act-btn play-act" @click="onPlayCards" :disabled="selectedIndices.size === 0">
+              <button class="act-btn play-act" @click="onPlayCards" :disabled="selectedIndices.size === 0 || sendingCards">
                 🚀 出牌
               </button>
             </template>
@@ -304,16 +304,24 @@ const ws: ReturnType<typeof import('../composables/useWebSocket').useWebSocket> 
 
 // ===== 响应式屏幕检测 =====
 const windowWidth = ref(window.innerWidth)
-const isMobile = computed(() => windowWidth.value <= 600)
 
 function onResize() { windowWidth.value = window.innerWidth }
 onMounted(() => window.addEventListener('resize', onResize))
 onUnmounted(() => window.removeEventListener('resize', onResize))
+const isMobile = computed(() => windowWidth.value <= 600)
 
 // ===== Card 尺寸选择 =====
 const cardSize = computed(() => isMobile.value ? 'sm' as const : 'lg' as const)
 const playedCardSize = computed(() => isMobile.value ? 'xs' as const : 'lg' as const)
 const bottomCardSize = computed(() => isMobile.value ? 'sm' as const : 'md' as const)
+
+// ===== 聊天面板开启时右移对手位置，避免遮挡 =====
+const spotOffsetStyle = computed(() => {
+  if (showChat.value && !isMobile.value) {
+    return { right: 'calc(280px + 16px)' }
+  }
+  return {}
+})
 
 // ===== 聊天 =====
 const showChat = ref(false)
@@ -530,10 +538,13 @@ function toggleCard(i: number) {
 }
 
 function onPlayCards() {
+  if (selectedIndices.size === 0 || sendingCards.value) return
   const cards = [...selectedIndices].sort((a, b) => a - b).map(i => sortedCards.value[i])
   if (cards.length === 0) return
+  sendingCards.value = true
   ws.playCards(cards)
   selectedIndices.clear()
+  setTimeout(() => { sendingCards.value = false }, 500)
 }
 
 function onHint() {
@@ -562,6 +573,7 @@ ws.setHintCallback((hint: any[]) => {
 
 onUnmounted(() => {
   ws.setHintCallback(null)
+  clearTimers()
 })
 
 // ===== 触屏支持 =====
@@ -610,6 +622,7 @@ function onTouchEnd() {
   touchActive = false
   const wasDragging = isDragging.value
   isDragging.value = false
+  lastTouchTime = Date.now()
   
   if (!wasDragging && Date.now() - touchStartTime < 200) {
     toggleCard(touchStartIdx)
@@ -623,6 +636,7 @@ const cardsContainer = ref<HTMLDivElement | null>(null)
 const isDragging = ref(false)
 const dragStartIdx = ref(-1)
 const dragEndIdx = ref(-1)
+const sendingCards = ref(false)
 
 /**
  * 牌布局计算。根据 isMobile 选用不同卡宽（lg=100px, sm=44px）。
@@ -657,14 +671,23 @@ const cardsContainerStyle = computed(() => {
   return { width: width + 'px', minWidth: width + 'px' }
 })
 
+// 触屏 + 拖拽的防误触标记
+let lastTouchTime = 0
+let justDragged = false
+
 function onCardClick(i: number) {
   if (!isMyTurn.value || ws.room.phase !== 'playing') return
+  // 触屏后的 emulated click（300ms延迟）→ 跳过
+  if (Date.now() - lastTouchTime < 350) return
+  // 拖拽后松开鼠标的 click → 跳过
+  if (justDragged) return
   if (touchActive || isDragging.value) return
   toggleCard(i)
 }
 
 function onCardsMouseDown(e: MouseEvent, cardIdx: number) {
   if (!isMyTurn.value || ws.room.phase !== 'playing') return
+  justDragged = false
   isDragging.value = true
   dragStartIdx.value = cardIdx
   dragEndIdx.value = cardIdx
@@ -697,11 +720,24 @@ function onCardsMouseMove(e: MouseEvent) {
 function onCardsMouseUp() {
   if (!isDragging.value) return
   isDragging.value = false
+  // 拖拽后屏蔽紧跟的 click 事件
+  if (dragStartIdx.value !== dragEndIdx.value) {
+    justDragged = true
+    setTimeout(() => { justDragged = false }, 100)
+  }
+  dragStartIdx.value = -1
+  dragEndIdx.value = -1
 }
 
 function onCardsMouseLeave() {
   if (isDragging.value) {
     isDragging.value = false
+    if (dragStartIdx.value !== dragEndIdx.value) {
+      justDragged = true
+      setTimeout(() => { justDragged = false }, 100)
+    }
+    dragStartIdx.value = -1
+    dragEndIdx.value = -1
   }
 }
 </script>
@@ -1867,7 +1903,7 @@ function onCardsMouseLeave() {
   .seat-name { font-size: 12px; }
   .btn-add-ai { font-size: 11px; padding: 4px 10px; }
 
-  /* 聊天面板：手机端最多占 85vw，不完全遮挡游戏 */
+  /* 聊天面板：手机端最多占 85vw，不完全遮挡游戏；桌面端对手位置避让 */
   .chat-panel { width: min(280px, 85vw); }
   .btn-chat-waiting { bottom: 30px; right: 20px; width: 38px; height: 38px; font-size: 16px; }
 }

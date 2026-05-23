@@ -21,4 +21,5 @@ export interface GameState {
   currentCallIndex: number
   bombsPlayed: number
   landlordId: string | null
+  winnerId: string | null
 }

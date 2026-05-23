@@ -400,20 +400,24 @@ export function playLandlordSound() {
   })
 }
 
-/** 胜利音效 — MP3 */
+/** 胜利音效 — MP3（缓存 Audio 对象，不重复创建） */
+let winAudio: HTMLAudioElement | null = null
 export function playWinSound() {
   const vol = masterGain ? masterGain.gain.value : 0.5
-  const audio = new Audio('/sfx/win.mp3')
-  audio.volume = vol
-  audio.play().catch(() => {})
+  if (!winAudio) winAudio = new Audio('/sfx/win.mp3')
+  winAudio.volume = vol
+  winAudio.currentTime = 0
+  winAudio.play().catch(() => {})
 }
 
 /** 失败音效 — MP3 */
+let loseAudio: HTMLAudioElement | null = null
 export function playLoseSound() {
   const vol = masterGain ? masterGain.gain.value : 0.5
-  const audio = new Audio('/sfx/lost.mp3')
-  audio.volume = vol
-  audio.play().catch(() => {})
+  if (!loseAudio) loseAudio = new Audio('/sfx/lost.mp3')
+  loseAudio.volume = vol
+  loseAudio.currentTime = 0
+  loseAudio.play().catch(() => {})
 }
 
 /** 发牌音效 — 快速卡牌声 */

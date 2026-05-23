@@ -159,12 +159,12 @@ wss.on('connection', (ws: WebSocket) => {
       case 'single_player_start': {
         if (currentRoom) return
         const room = createRoom()
+        currentRoom = room // 立即赋值，防 WS 断开后房间泄漏
         const result = room.handleSinglePlayerStart(payload.nickname ?? '玩家')
         // 先设置真实 session，再开始游戏，确保 deal_cards 能送达
         room.setPlayerSession(result.playerId, {
           send: (d) => ws.send(d),
         })
-        currentRoom = room
         playerId = result.playerId
         ws.send(JSON.stringify({
           type: 'room_created',
@@ -203,6 +203,7 @@ wss.on('connection', (ws: WebSocket) => {
         if (pIdx !== currentRoom.game.currentPlayerIndex) return
         try {
           const hint = aiPlayCards(currentRoom.players[pIdx].cards, currentRoom.game.lastPlay)
+          // hint 不传 context，确保始终展示可用出牌（不受"农民不打队友"策略影响）
           ws.send(JSON.stringify({ type: 'hint_cards', payload: { cards: hint } }))
         } catch (e) {
           // AI 逻辑异常时返回空（不出）而非乱出牌
@@ -213,6 +214,14 @@ wss.on('connection', (ws: WebSocket) => {
 
       case 'leave_room': {
         if (!currentRoom || !playerId) return
+        // 游戏进行中 → 标记断线而非移除，保留位置
+        if (currentRoom.game) {
+          currentRoom.disconnectPlayer(playerId)
+          currentRoom.broadcastRoomState()
+          currentRoom = null
+          playerId = null
+          return
+        }
         currentRoom.removePlayer(playerId)
         currentRoom.broadcastRoomState()
         if (currentRoom.playerCount === 0) {
