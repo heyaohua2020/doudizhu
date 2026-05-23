@@ -4,6 +4,13 @@ import type { Card, RoomState, GamePhase } from '@doudizhu/shared'
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
 const WS_URL = `${WS_PROTOCOL}//${window.location.host}/ws`
 
+export interface ChatMessage {
+  playerId: string
+  nickname: string
+  text: string
+  timestamp: number
+}
+
 export function useWebSocket() {
   const ws: Ref<WebSocket | null> = ref(null)
   const connected = ref(false)
@@ -34,6 +41,8 @@ export function useWebSocket() {
   let hintCallback: ((cards: Card[]) => void) | null = null
   // 断线状态：在房间内时 WS 断开
   const disconnected = ref(false)
+  // 聊天消息列表
+  const chatMessages: Ref<ChatMessage[]> = ref([])
 
   function connect() {
     // 如果已有连接，先关掉
@@ -204,6 +213,10 @@ export function useWebSocket() {
         // 3 秒后自动清除
         setTimeout(() => { error.value = null }, 3000)
         break
+
+      case 'chat_message':
+        chatMessages.value = [...chatMessages.value, payload as ChatMessage]
+        break
     }
   }
 
@@ -233,6 +246,7 @@ export function useWebSocket() {
     landlordId.value = null
     winner.value = null
     disconnected.value = false
+    chatMessages.value = []
   }
 
   function getHint() {
@@ -256,6 +270,10 @@ export function useWebSocket() {
     send('start_game')
   }
 
+  function sendChat(text: string) {
+    send('chat_message', { text })
+  }
+
   return {
     ws,
     connected,
@@ -276,6 +294,7 @@ export function useWebSocket() {
     playerCardCounts,
     hintCards,
     disconnected,
+    chatMessages,
     setHintCallback,
     connect,
     createRoom,
@@ -287,5 +306,6 @@ export function useWebSocket() {
     addAi,
     startSinglePlayer,
     requestStartGame,
+    sendChat,
   }
 }

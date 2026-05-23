@@ -1,5 +1,5 @@
 <template>
-  <div class="card-face" :class="[colorClass, { joker: isJoker }]">
+  <div class="card-face" :class="[colorClass, size, { joker: isJoker }]">
     <div class="card-pattern"></div>
     <div class="corner top-left">
       <span class="rank-text">{{ displayRank }}</span>
@@ -20,7 +20,13 @@
 import { computed } from 'vue'
 import type { Card } from '@doudizhu/shared'
 
-const props = defineProps<{ card: Card }>()
+const props = withDefaults(defineProps<{
+  card: Card
+  /** lg=100×144(桌面手牌) md=68×98(底牌) sm=44×64(手机手牌) */
+  size?: 'lg' | 'md' | 'sm'
+}>(), {
+  size: 'lg'
+})
 
 const SUIT_SYMBOLS: Record<string, string> = {
   spade: '♠', heart: '♥', club: '♣', diamond: '♦',
@@ -29,7 +35,7 @@ const SUIT_SYMBOLS: Record<string, string> = {
 const isJoker = computed(() => props.card.jokerType === 'small' || props.card.jokerType === 'big')
 
 const colorClass = computed(() => {
-  if (isJoker.value) return 'joker'
+  if (isJoker.value) return 'red' // joker 也用红色系，靠 isJoker class 区分配色
   if (props.card.suit === 'heart' || props.card.suit === 'diamond') return 'red'
   return 'black'
 })
@@ -54,11 +60,23 @@ const centerDisplay = computed(() => {
 </script>
 
 <style scoped>
+/* ===== 尺寸体系（CSS 变量驱动，无 scale hack）===== */
 .card-face {
-  width: 100px;
-  height: 144px;
+  /* lg: 桌面手牌（默认） */
+  --cf-w: 100px;
+  --cf-h: 144px;
+  --cf-radius: 10px;
+  --cf-border: 2px;
+  --cf-rank: 20px;
+  --cf-suit: 13px;
+  --cf-center: 50px;
+  --cf-joker: 56px;
+  --cf-pattern-inset: 5px;
+
+  width: var(--cf-w);
+  height: var(--cf-h);
   background: linear-gradient(145deg, #ffffff, #f5f0e8);
-  border-radius: 10px;
+  border-radius: var(--cf-radius);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -67,31 +85,39 @@ const centerDisplay = computed(() => {
     0 3px 12px rgba(0,0,0,0.25),
     inset 0 1px 0 rgba(255,255,255,0.8);
   user-select: none;
-  border: 2px solid #d4c8a8;
+  border: var(--cf-border) solid #d4c8a8;
   overflow: hidden;
   transition: transform 0.15s, box-shadow 0.15s;
+  flex-shrink: 0;
 }
 
-.card-face:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+/* md: 底牌桌面 / 中等尺寸 */
+.card-face.md {
+  --cf-w: 68px;
+  --cf-h: 98px;
+  --cf-radius: 8px;
+  --cf-border: 1.5px;
+  --cf-rank: 18px;
+  --cf-suit: 11px;
+  --cf-center: 36px;
+  --cf-joker: 38px;
+  --cf-pattern-inset: 4px;
 }
 
-.card-pattern {
-  position: absolute;
-  inset: 5px;
-  border-radius: 6px;
-  border: 1px solid rgba(0,0,0,0.04);
-  background: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 6px,
-    rgba(0,0,0,0.008) 6px,
-    rgba(0,0,0,0.008) 7px
-  );
-  pointer-events: none;
+/* sm: 手机手牌 */
+.card-face.sm {
+  --cf-w: 44px;
+  --cf-h: 64px;
+  --cf-radius: 6px;
+  --cf-border: 1px;
+  --cf-rank: 13px;
+  --cf-suit: 8px;
+  --cf-center: 24px;
+  --cf-joker: 28px;
+  --cf-pattern-inset: 2px;
 }
 
+/* ===== 配色 ===== */
 .card-face.red {
   border-color: #e8b4b4;
   background: linear-gradient(145deg, #fff8f8, #fde8e8);
@@ -108,6 +134,7 @@ const centerDisplay = computed(() => {
 .card-face.black .rank-text { color: #1a1a2e; }
 .card-face.black .center-suit { color: #1a1a2e; text-shadow: 0 2px 6px rgba(26,26,46,0.15); }
 
+/* joker 特殊配色 */
 .card-face.joker {
   border-color: #d4a0d4;
   background: linear-gradient(145deg, #fff8ff, #f8e8ff);
@@ -116,6 +143,27 @@ const centerDisplay = computed(() => {
 .card-face.joker .rank-text { color: #7b1fa2; }
 .card-face.joker .center-suit { color: #7b1fa2; }
 
+/* joker 同时有 red class 时不覆盖 color，joker 优先级更高 */
+.card-face.joker .rank-text, .card-face.joker .suit-text, .card-face.joker .center-suit {
+  color: #7b1fa2;
+}
+
+/* ===== 共同元素 ===== */
+.card-pattern {
+  position: absolute;
+  inset: var(--cf-pattern-inset, 5px);
+  border-radius: calc(var(--cf-radius, 10px) - 2px);
+  border: 1px solid rgba(0,0,0,0.04);
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 6px,
+    rgba(0,0,0,0.008) 6px,
+    rgba(0,0,0,0.008) 7px
+  );
+  pointer-events: none;
+}
+
 .corner {
   position: absolute;
   display: flex;
@@ -123,29 +171,29 @@ const centerDisplay = computed(() => {
   align-items: center;
   line-height: 1;
 }
-.top-left { top: 6px; left: 6px; }
-.bottom-right { bottom: 6px; right: 6px; transform: rotate(180deg); }
+.top-left { top: var(--cf-pattern-inset, 5px); left: var(--cf-pattern-inset, 5px); }
+.bottom-right { bottom: var(--cf-pattern-inset, 5px); right: var(--cf-pattern-inset, 5px); transform: rotate(180deg); }
 
 .rank-text {
-  font-size: 20px;
+  font-size: var(--cf-rank, 20px);
   font-weight: bold;
   font-family: 'Georgia', serif;
 }
 .suit-text {
-  font-size: 13px;
+  font-size: var(--cf-suit, 13px);
   line-height: 1;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 .center-suit {
-  font-size: 50px;
+  font-size: var(--cf-center, 50px);
   line-height: 1;
   font-weight: normal;
   opacity: 0.85;
 }
 
 .joker-deco {
-  font-size: 56px;
+  font-size: var(--cf-joker, 56px);
   line-height: 1;
   z-index: 1;
 }

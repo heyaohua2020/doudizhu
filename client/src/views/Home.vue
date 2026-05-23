@@ -176,12 +176,15 @@ function handleSubmit() {
   inset: 0;
   pointer-events: none;
   z-index: 0;
+  overflow: hidden; /* 防止装饰超出边界 */
 }
 .deco-icon {
   position: absolute;
   font-size: 40px;
   opacity: 0.06;
   animation: floatDeco 6s ease-in-out infinite;
+  /* 限制动画范围，防止产生滚动条 */
+  max-width: 100%;
 }
 @keyframes floatDeco {
   0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.06; }
@@ -373,8 +376,14 @@ function handleSubmit() {
   .logo-icon { font-size: 36px; }
   .input { padding: 10px 12px; }
   .btn { padding: 10px; }
-  .tabs button { padding: 8px; }
+  .tabs button { padding: 8px; font-size: 13px; }
   .btn-single { padding: 14px; }
   .sound-toggle { width: 34px; height: 34px; font-size: 15px; top: 10px; right: 10px; }
+  /* 手机端装饰缩小，位置收紧 */
+  .deco-icon { font-size: 24px; opacity: 0.04; }
+  @keyframes floatDeco {
+    0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.04; }
+    50% { transform: translateY(-15px) rotate(10deg); opacity: 0.07; }
+  }
 }
 </style>

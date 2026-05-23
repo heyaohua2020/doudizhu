@@ -1,5 +1,5 @@
 <template>
-  <div class="card-item" :class="[colorClass, { small, joker: isJoker }]">
+  <div class="card-item" :class="[colorClass, size, { joker: isJoker }]">
     <div class="item-corner tl">
       <span class="irank">{{ displayRank }}</span>
       <span class="isuit">{{ displaySuit }}</span>
@@ -19,7 +19,13 @@
 import { computed } from 'vue'
 import type { Card } from '@doudizhu/shared'
 
-const props = defineProps<{ card: Card; small?: boolean }>()
+const props = withDefaults(defineProps<{
+  card: Card
+  /** lg=76×110(桌面出牌)  sm=52×76(小号)  xs=40×58(手机出牌) */
+  size?: 'lg' | 'sm' | 'xs'
+}>(), {
+  size: 'lg'
+})
 
 const SUIT_SYMBOLS: Record<string, string> = {
   spade: '♠', heart: '♥', club: '♣', diamond: '♦',
@@ -28,7 +34,7 @@ const SUIT_SYMBOLS: Record<string, string> = {
 const isJoker = computed(() => props.card.jokerType === 'small' || props.card.jokerType === 'big')
 
 const colorClass = computed(() => {
-  if (isJoker.value) return 'joker'
+  if (isJoker.value) return 'red'
   if (props.card.suit === 'heart' || props.card.suit === 'diamond') return 'red'
   return 'black'
 })
@@ -48,22 +54,57 @@ const displaySuit = computed(() => {
 </script>
 
 <style scoped>
+/* ===== 尺寸体系 ===== */
 .card-item {
-  width: 76px;
-  height: 110px;
+  /* lg: 桌面出牌（默认） */
+  --ci-w: 76px;
+  --ci-h: 110px;
+  --ci-radius: 8px;
+  --ci-border: 2px;
+  --ci-rank: 20px;
+  --ci-suit: 12px;
+  --ci-center: 38px;
+  --ci-corner-offset: 5px;
+
+  width: var(--ci-w);
+  height: var(--ci-h);
   background: linear-gradient(145deg, #ffffff, #f5f0e8);
-  border-radius: 8px;
+  border-radius: var(--ci-radius);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   box-shadow: 0 2px 8px rgba(0,0,0,0.3);
   user-select: none;
-  border: 2px solid #d4c8a8;
+  border: var(--ci-border) solid #d4c8a8;
   flex-shrink: 0;
 }
-.card-item.small { width: 52px; height: 76px; }
 
+/* sm: 小号（备用） */
+.card-item.sm {
+  --ci-w: 52px;
+  --ci-h: 76px;
+  --ci-radius: 6px;
+  --ci-border: 1.5px;
+  --ci-rank: 14px;
+  --ci-suit: 9px;
+  --ci-center: 26px;
+  --ci-corner-offset: 3px;
+}
+
+/* xs: 手机出牌 */
+.card-item.xs {
+  --ci-w: 40px;
+  --ci-h: 58px;
+  --ci-radius: 5px;
+  --ci-border: 1px;
+  --ci-rank: 11px;
+  --ci-suit: 7px;
+  --ci-center: 18px;
+  --ci-corner-offset: 2px;
+}
+
+/* ===== 配色 ===== */
 .card-item.red {
   border-color: #e0a0a0;
   background: linear-gradient(145deg, #fff5f5, #fce0e0);
@@ -77,6 +118,10 @@ const displaySuit = computed(() => {
   background: linear-gradient(145deg, #fefaff, #f5e5ff);
 }
 
+/* joker 文字色 */
+.card-item.joker .irank, .card-item.joker .isuit { color: #7b1fa2; }
+
+/* ===== 共同元素 ===== */
 .item-corner {
   position: absolute;
   display: flex;
@@ -84,17 +129,18 @@ const displaySuit = computed(() => {
   align-items: center;
   line-height: 1;
 }
-.tl { top: 4px; left: 5px; }
-.br { bottom: 4px; right: 5px; transform: rotate(180deg); }
+.tl { top: var(--ci-corner-offset, 4px); left: var(--ci-corner-offset, 4px); }
+.br { bottom: var(--ci-corner-offset, 4px); right: var(--ci-corner-offset, 4px); transform: rotate(180deg); }
 
 .irank {
-  font-size: 20px;
+  font-size: var(--ci-rank, 20px);
   font-weight: bold;
   font-family: 'Georgia', serif;
 }
-.small .irank { font-size: 14px; }
-.isuit { font-size: 12px; line-height: 1; }
-.small .isuit { font-size: 9px; }
+.isuit {
+  font-size: var(--ci-suit, 12px);
+  line-height: 1;
+}
 
 .i-center {
   display: flex;
@@ -102,14 +148,12 @@ const displaySuit = computed(() => {
   justify-content: center;
 }
 .ibig-suit {
-  font-size: 38px;
+  font-size: var(--ci-center, 38px);
   opacity: 0.85;
 }
-.small .ibig-suit { font-size: 26px; }
-.joker-icon { font-size: 38px; }
-.small .joker-icon { font-size: 26px; }
+.joker-icon { font-size: var(--ci-center, 38px); }
 
 .card-item.red .irank, .card-item.red .isuit, .card-item.red .ibig-suit { color: #c62828; }
 .card-item.black .irank, .card-item.black .isuit, .card-item.black .ibig-suit { color: #1a1a2e; }
-.card-item.joker .irank, .card-item.joker .isuit { color: #7b1fa2; }
+.card-item.joker .irank, .card-item.joker .isuit, .card-item.joker .ibig-suit, .card-item.joker .joker-icon { color: #7b1fa2; }
 </style>

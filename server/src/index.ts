@@ -250,6 +250,24 @@ wss.on('connection', (ws: WebSocket) => {
         room.broadcastRoomState()
         break
       }
+
+      case 'chat_message': {
+        if (!currentRoom || !playerId) return
+        const text = (payload.text ?? '').toString().trim()
+        if (!text) return
+        const player = currentRoom.players.find(p => p.id === playerId)
+        if (!player) return
+        currentRoom.broadcast({
+          type: 'chat_message',
+          payload: {
+            playerId,
+            nickname: player.nickname,
+            text,
+            timestamp: Date.now(),
+          },
+        })
+        break
+      }
     }
     } catch (e) {
       console.error('ws handler error:', e)
